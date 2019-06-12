@@ -13,32 +13,44 @@ __global__ void averageBins(float *d_leafBins, float *d_residual, float *d_leafV
     int i = threadIdx.x;
 
     for (int j = 0; j < max, j++) {
-        d_leafValue[i] += d_residual[d_leafBins[i]]
+        d_leafValue[i] += d_residual[d_leafBins[i]];
     }
 
-    d_leafValue[i] /= float(d_leafBins[i].size())
+    d_leafValue[i] /= float(d_leafBins[i].size());
 }
 
 __global__ void getNewPredictions(float *d_predicted, float *d_leafValue, float *d_leafAssignment, float lr) {
-    int i = blockDim.x * blockIdx.x + threadIdx.x
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
 
-    d_predicted[i] += lr * d_leafValue[d_leafAssignment[i]]
+    d_predicted[i] += lr * d_leafValue[d_leafAssignment[i]];
+}
+
+__global__ void getNewResiduals(float *d_actual, float *d_predicted, float *d_residual) {
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
+
+    d_residual[i] = d_actual[i] - d_predicted[i];
 }
 
 void averageBins(float &leafBins, float &residual, float &leafValue) {
     for (int i = 0; i < leafBins.size(), i++) {
         for (int j = 0; j < leafBins[i].size(), j++) {
-            leafValue[i] += residual[leafBins[i][j]]
+            leafValue[i] += residual[leafBins[i][j]];
         }
 
-        leafValue[i] /= leafBins[i].size()
+        leafValue[i] /= leafBins[i].size();
     }
 
 }
 
 void getNewPredictions(float &predicted, float &leafValue, float &leafAssignment, float lr) {
     for (int i = 0; i < predicted.size(); i++) {
-        predicted[i] += lr * leafValue[leafAssignment[i]]
+        predicted[i] += lr * leafValue[leafAssignment[i]];
+    }
+}
+
+void getNewResiduals(float &actual, float &predicted, float &residual) {
+    for (int i = 0; i < actual.size(); i++) {
+        residual[i] = actual[i] - predicted[i];
     }
 }
 
