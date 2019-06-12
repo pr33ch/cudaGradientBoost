@@ -1,4 +1,5 @@
 #include "CSVRow.h"
+#include <math.h>
 
 // naive CPU implementation of leaf assignment of each datapoint
 
