@@ -4,6 +4,8 @@
 #include <algorithm>
 #include "CSVRow.h"
 #include "preprocessing.h"
+#include "initialize_tree.h"
+#include "leaf_assign.h"
 
 #define N_VARIABLES 4
 #define N_DATA 100000
@@ -78,6 +80,7 @@ int main()
     // initialize data
     float leafBins[N_VARIABLES] __attribute__((aligned(64)));
     float leafAssignment[data_table.size()] __attribute__((aligned(64)));
+    float tree[N_VARIABLES] __attribute__((aligned(64)));
     float residual[data_table.size()] __attribute__((aligned(64)));
     float leafValue[data_table.size()] __attribute__((aligned(64)));
     float actual[data_table.size()] __attribute__((aligned(64)));
@@ -87,6 +90,7 @@ int main()
 
     // fill arrays
     preprocessing(actual, predicted);
+    initialize_tree(data_table, tree);
     std::fill_n(leafBins, data_table.size(), 0);
     std::fill_n(leafAssignment, data_table.size(), 0)
     std::fill_n(residual, data_table.size(), 0);
