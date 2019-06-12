@@ -1,15 +1,15 @@
 #include <iostream>
 #include <string>
+#include <math.h>
 #include <algorithm>
 #include "CSVRow.h"
-#include "initialize_tree.h"
-#include "leaf_assign.h"
 #include "preprocessing.h"
 
 #define N_VARIABLES 4
 #define N_DATA 100000
 #define ITERATIONS 3000
 #define LR 0.1
+#define MAX_THREADS 1024
 
 __global__ void averageBins(float *d_leafBins, float *d_residual, float *d_leafValue, int max) {
     int i = threadIdx.x;
@@ -77,7 +77,6 @@ int main()
 
     // initialize data
     float leafBins[N_VARIABLES] __attribute__((aligned(64)));
-    float tree[N_VARIABLES] __attribute__((aligned(64)));
     float leafAssignment[data_table.size()] __attribute__((aligned(64)));
     float residual[data_table.size()] __attribute__((aligned(64)));
     float leafValue[data_table.size()] __attribute__((aligned(64)));
@@ -88,7 +87,6 @@ int main()
 
     // fill arrays
     preprocessing(actual, predicted);
-    initialize_tree(data_table, tree);
     std::fill_n(leafBins, data_table.size(), 0);
     std::fill_n(leafAssignment, data_table.size(), 0)
     std::fill_n(residual, data_table.size(), 0);
@@ -97,7 +95,7 @@ int main()
     // compute on CPU
     std::cout << "Begin CPU calculations" << std::endl;
     begin_roi();
-    leaf_assign(data_table,leafBins, leafAssignment);
+    leaf_assign(leafBins, leafAssignment);
     for (int i = 0; i < ITERATIONS; i++) {
         getNewResiduals(actual, predicted, residual);
         averageBins(leafBins, residual, leafValue);
@@ -208,17 +206,21 @@ int main()
         exit(EXIT_FAILURE);
     }
 
+    //compute numBlocks, numThreads
+    int numBlocks = data_table.size() / MAX_THREADS, MAX_THREADS;
+    int numThreads = pow(2, N_VARIABLES);
+
     //compute on GPU
     std::cout << "Begin GPU calculations" << std::endl;
     begin_roi();
     leafAssign<<<>>>(d_leafBins, d_leafAssignment);
     cudaDeviceSynchronize();
     for (int i = 0; i < ITERATIONS; i++) {
-        getNewResiduals<<<i>>>(d_actual, d_predicted, d_residual);
+        getNewResiduals<<<numBlocks, MAX_THREADS>>>(d_actual, d_predicted, d_residual);
         cudaDeviceSynchronize();
-        averageBins<<<>>>(d_leafBins, d_residual, d_leafValue);
+        averageBins<<<1, numThreads>>>(d_leafBins, d_residual, d_leafValue);
         cudaDeviceSynchronize();
-        getNewPredictions<<<>>>(d_predicted, d_leafValue, d_leafAssignment, LR);
+        getNewPredictions<<<numBlocks, MAX_THREADS>>>(d_predicted, d_leafValue, d_leafAssignment, LR);
         cudaDeviceSynchronize();
     }
     end_roi();
