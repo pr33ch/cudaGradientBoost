@@ -1,9 +1,28 @@
 #include <iostream>
 #include <string>
+#include <algorithm>
 #include "CSVRow.h"
 
 #define N_VARIABLES 4
 #define N_DATA 100000
+
+__global__ void averageBins(float *d_leafAssignment, float *d_residual, float *d_leafValue, int max) {
+    int i = threadIdx.x;
+
+    for (int j = 0; j < max, j++) {
+        d_leafValue[i] += d_residual[d_leafAssignment[i]]
+    }
+
+    d_leafValue[i] /= float(d_leafAssignment[i].size())
+}
+
+__global__ void getNewPredictions(float *d_predicted, float *d_leafValue, float lr) {
+    int i = blockDim.x * blockIdx.x + threadIdx.x
+
+    d_predicted[i] += lr * d_leafValue[i]
+}
+
+
 
 int main()
 {
@@ -24,10 +43,17 @@ int main()
     }
 
     // initialize data
+    float leafAssignment[N_DATA] __attribute__((aligned(64)));
     float actual[N_DATA] __attribute__((aligned(64)));
     float predicted[N_DATA] __attribute__((aligned(64)));
+    float residual[N_DATA] __attribute__((aligned(64)));
+    float leafValue[N_DATA] __attribute__((aligned(64)));
 
+    // fill arrays
     preprocessing(actual, predicted);
+    std::fill_n(leafAssignment, N_DATA, 0);
+    std::fill_n(residual, N_DATA, 0);
+    std::fill_n(leafValue, N_DATA, 0);
 
     // Allocate memory
     cudaError_t err = cudaSuccess;
@@ -81,6 +107,13 @@ int main()
     }
 
     // transfer memory associated with initalized vars from host to device
+    err = cudaMemcpy(d_leafAssignment, leafAssignment, size_output, cudaMemcpyHostToDevice);
+    if (err != cudaSuccess)
+    {
+        fprintf(stderr, "Failed to copy vector from host to device (error code %s)!\n", cudaGetErrorString(err));
+        exit(EXIT_FAILURE);
+    }
+
     err = cudaMemcpy(d_actual, actual, size_output, cudaMemcpyHostToDevice);
     if (err != cudaSuccess)
     {
@@ -92,6 +125,56 @@ int main()
     if (err != cudaSuccess)
     {
         fprintf(stderr, "Failed to copy vector from host to device (error code %s)!\n", cudaGetErrorString(err));
+        exit(EXIT_FAILURE);
+    }
+
+    err = cudaMemcpy(d_residual, residual, size_output, cudaMemcpyHostToDevice);
+    if (err != cudaSuccess)
+    {
+        fprintf(stderr, "Failed to copy vector from host to device (error code %s)!\n", cudaGetErrorString(err));
+        exit(EXIT_FAILURE);
+    }
+
+    err = cudaMemcpy(d_leafValue, leafValue, size_output, cudaMemcpyHostToDevice);
+    if (err != cudaSuccess)
+    {
+        fprintf(stderr, "Failed to copy vector from host to device (error code %s)!\n", cudaGetErrorString(err));
+        exit(EXIT_FAILURE);
+    }
+
+    // Free device memory
+    err = cudaFree(d_leafAssignment);
+    if (err != cudaSuccess)
+    {
+        fprintf(stderr, "Failed to free device vector d_leafAssignment (error code %s)!\n", cudaGetErrorString(err));
+        exit(EXIT_FAILURE);
+    }
+
+    err = cudaFree(d_predicted);
+    if (err != cudaSuccess)
+    {
+        fprintf(stderr, "Failed to free device vector d_predicted (error code %s)!\n", cudaGetErrorString(err));
+        exit(EXIT_FAILURE);
+    }
+
+    err = cudaFree(d_actual);
+    if (err != cudaSuccess)
+    {
+        fprintf(stderr, "Failed to free device vector d_actual (error code %s)!\n", cudaGetErrorString(err));
+        exit(EXIT_FAILURE);
+    }
+
+    err = cudaFree(d_residual);
+    if (err != cudaSuccess)
+    {
+        fprintf(stderr, "Failed to free device vector d_residual (error code %s)!\n", cudaGetErrorString(err));
+        exit(EXIT_FAILURE);
+    }
+
+    err = cudaFree(d_leafValue);
+    if (err != cudaSuccess)
+    {
+        fprintf(stderr, "Failed to free device vector d_leafValue (error code %s)!\n", cudaGetErrorString(err));
         exit(EXIT_FAILURE);
     }
 }
