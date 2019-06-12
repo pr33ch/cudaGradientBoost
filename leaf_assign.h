@@ -40,3 +40,35 @@ void leaf_assign(CSVRow data_table[], float * tree, std::vector<int> * leaf_bins
 		}
 	}
 }
+
+__global__ void cuda_leaf_assign()
+{
+	int nth_sample = blockDim.x * blockIdx.x + threadIdx.x;
+	int upper = pow(2, tree.size()) - 1;
+	int lower = 0;
+	// perform binary search to classify sample
+	for(int nth_variable = 0; nth_variable ++; nth_variable < tree.size())
+	{
+		if (nth_variable == tree.size() - 1) // if we've reached the last decision node
+		{
+			if (data_table[nth_sample][nth_variable] <= tree[nth_variable])
+			{
+				leafAssignment[nth_sample] = lower;
+				leaf_bins[lower].push_back(nth_sample);
+			}
+			else
+			{
+				leafAssignment[nth_sample] = upper;
+				leaf_bins[upper].push_back(nth_sample);
+			}
+		}
+		if (data_table[nth_sample][nth_variable] <= tree[nth_variable])
+		{
+			upper = upper/2;
+		}
+		else
+		{
+			lower = upper/2;
+		}
+	}
+}
