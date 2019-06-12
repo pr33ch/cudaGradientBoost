@@ -95,7 +95,7 @@ int main()
     // compute on CPU
     std::cout << "Begin CPU calculations" << std::endl;
     begin_roi();
-    leafAssign(leafBins, leafAssignment);
+    leaf_assign(leafBins, leafAssignment);
     for (int i = 0; i < ITERATIONS; i++) {
         getNewResiduals(actual, predicted, residual);
         averageBins(leafBins, residual, leafValue);
