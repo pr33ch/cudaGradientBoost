@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 #include "CSVRow.h"
+#include "preprocessing.h"
 
 #define N_VARIABLES 4
 #define N_DATA 100000
@@ -22,10 +23,10 @@ int main()
     	std::cout << "4th Element(" << data_table[row][3] << ")\n";
         row++;
     }
-
     // initialize data
-    float actual[N_DATA] __attribute__((aligned(64)));
-    float predicted[N_DATA] __attribute__((aligned(64)));
+    float actual[data_table.size()] __attribute__((aligned(64)));
+    float predicted[data_table.size()] __attribute__((aligned(64)));
+    memcpy(actual, data_table[data_table.size()-1], data_table.size()*sizeof(float));
 
     preprocessing(actual, predicted);
 
