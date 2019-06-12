@@ -39,7 +39,6 @@ void leaf_assign(CSVRow data_table[], float * tree, std::vector<int> * leaf_bins
 			}
 		}
 	}
-<<<<<<< HEAD
 }
 
 __global__ void cuda_leaf_assign()
@@ -72,6 +71,4 @@ __global__ void cuda_leaf_assign()
 			lower = upper/2;
 		}
 	}
-=======
->>>>>>> 958936c2d0e8c70b9522840bd3004d90b85e314d
 }
