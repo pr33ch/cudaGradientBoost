@@ -99,7 +99,7 @@ int main()
     // compute on CPU
     std::cout << "Begin CPU calculations" << std::endl;
     begin_roi();
-    leaf_assign(leafBins, leafAssignment);
+    leaf_assign(data_table, tree, leafBins, leafAssignment);
     for (int i = 0; i < ITERATIONS; i++) {
         getNewResiduals(actual, predicted, residual);
         averageBins(leafBins, residual, leafValue);
@@ -111,9 +111,12 @@ int main()
     cudaError_t err = cudaSuccess;
     size_t size_input = data_table.size() * N_VARIABLES * sizeof(float);
     size_t size_output = data_table.size() * sizeof(float);
+    size_t size_var = N_VARIABLES * sizeof(float);
 
     float *d_leafBins;
     float *d_leafAssignment;
+    float *d_data_table;
+    float *d_tree;
     float *d_actual;
     float *d_predicted;
     float *d_residual;
@@ -132,6 +135,22 @@ int main()
     if (err != cudaSuccess)
     {
         fprintf(stderr, "Failed to allocate device vector d_leafAssignment (error code %s)!\n", cudaGetErrorString(err));
+        exit(EXIT_FAILURE);
+    }
+
+    // allocate d_data_table memory
+    err = cudaMalloc((void **)&d_data_table, size_input);
+    if (err != cudaSuccess)
+    {
+        fprintf(stderr, "Failed to allocate device vector d_data_table (error code %s)!\n", cudaGetErrorString(err));
+        exit(EXIT_FAILURE);
+    }
+
+    // allocate d_tree memory
+    err = cudaMalloc((void **)&d_tree, size_var);
+    if (err != cudaSuccess)
+    {
+        fprintf(stderr, "Failed to allocate device vector d_tree (error code %s)!\n", cudaGetErrorString(err));
         exit(EXIT_FAILURE);
     }
 
@@ -182,6 +201,20 @@ int main()
         exit(EXIT_FAILURE);
     }
 
+    err = cudaMemcpy(d_data_table, data_table, size_input, cudaMemcpyHostToDevice);
+    if (err != cudaSuccess)
+    {
+        fprintf(stderr, "Failed to copy vector from host to device (error code %s)!\n", cudaGetErrorString(err));
+        exit(EXIT_FAILURE);
+    }
+
+    err = cudaMemcpy(d_tree, tree, size_output, cudaMemcpyHostToDevice);
+    if (err != cudaSuccess)
+    {
+        fprintf(stderr, "Failed to copy vector from host to device (error code %s)!\n", cudaGetErrorString(err));
+        exit(EXIT_FAILURE);
+    }
+
     err = cudaMemcpy(d_actual, actual, size_output, cudaMemcpyHostToDevice);
     if (err != cudaSuccess)
     {
@@ -217,7 +250,7 @@ int main()
     //compute on GPU
     std::cout << "Begin GPU calculations" << std::endl;
     begin_roi();
-    leafAssign<<<>>>(d_leafBins, d_leafAssignment);
+    cuda_leaf_assign<<<numBlocks, MAX_THREADS>>>(d_data_table, d_tree, d_leafBins, d_leafAssignment);
     cudaDeviceSynchronize();
     for (int i = 0; i < ITERATIONS; i++) {
         getNewResiduals<<<numBlocks, MAX_THREADS>>>(d_actual, d_predicted, d_residual);
@@ -250,6 +283,20 @@ int main()
     }
 
     err = cudaFree(d_leafAssignment);
+    if (err != cudaSuccess)
+    {
+        fprintf(stderr, "Failed to free device vector d_leafBins (error code %s)!\n", cudaGetErrorString(err));
+        exit(EXIT_FAILURE);
+    }
+
+    err = cudaFree(d_data_table);
+    if (err != cudaSuccess)
+    {
+        fprintf(stderr, "Failed to free device vector d_leafBins (error code %s)!\n", cudaGetErrorString(err));
+        exit(EXIT_FAILURE);
+    }
+
+    err = cudaFree(d_tree);
     if (err != cudaSuccess)
     {
         fprintf(stderr, "Failed to free device vector d_leafBins (error code %s)!\n", cudaGetErrorString(err));
