@@ -1,7 +1,8 @@
-#include <algorithm>
+// #include <algorithm>
 #include "CSVRow.h"
 #include <inttypes.h>
 #include <sys/time.h>
+#include <math.h>
 
 #define N_VARIABLES 4
 #define N_DATA 100000
@@ -9,16 +10,41 @@
 #define LR 0.1
 #define MAX_THREADS 1024
 
-void initialize_tree(CSVRow data_table[], float * tree)
+void compare(float* cpu, float* gpu, int size) {
+  bool error = false;
+  for(int i = 0; i < size; ++i) {
+      float diff = cpu[i] - gpu[i];
+      if(diff>0.001f || diff <-0.001f) {
+      error = true;
+      break;
+    }
+  }
+  if(error) {
+    for(int i = 0; i < size; ++i) {
+      std::cout << i << " " << cpu[i] << ":" << gpu[i];;
+
+      float diff = cpu[i] - gpu[i];
+      if(diff>0.001f || diff <-0.001f) {
+        std::cout << " \t\tERROR";
+      }
+      std::cout << "\n";
+    }
+  } else {
+    std::cout << "results match\n";
+  }
+}
+
+void initialize_tree(CSVRow *data_table, float * tree)
 {
-	for (int nth_variable = 0; nth_variable < data_table[0].size()-1; nth_variable++)
+	for (int nth_variable = 0; nth_variable < data_table[0].size() - 1; nth_variable++)
 	{
 		float average = 0;
-		for (int nth_sample = 0; nth_sample < data_table.size(); nth_sample ++)
+		for (int nth_sample = 0; nth_sample < data_table->size(); nth_sample ++)
 		{
-			average += data_table[nth_sample][nth_variable]/data_table.size();
+			average += data_table[nth_sample][nth_variable]/data_table->size();
 		}
-		memcpy(tree[nth_variable], average, sizeof(float));
+        tree[nth_variable] = average;
+		// memcpy(tree[nth_variable], average, sizeof(float));
 	}
 }
 
@@ -28,16 +54,16 @@ void initialize_tree(CSVRow data_table[], float * tree)
 // whether or not a given data point's value for variable i is <= the average for variable i. The
 // depth of the tree is the dimensionality of our dataset
 
-void leaf_assign(CSVRow data_table[], float * tree, std::vector<int> * leaf_bins, int * leafAssignment)
+void leaf_assign(CSVRow data_table[], float *tree, std::vector<int> *leaf_bins, int * leafAssignment)
 {
-	for (int nth_sample = 0; nth_sample < data_table.size(); nth_sample ++)
+	for (int nth_sample = 0; nth_sample < data_table->size(); nth_sample ++)
 	{
-		int upper = pow(2, tree.size()) - 1;
+		int upper = pow(2, sizeof(tree)/sizeof(float)) - 1;
 		int lower = 0;
 		// perform binary search to classify sample
-		for(int nth_variable = 0; nth_variable < tree.size(); nth_variable ++)
+		for(int nth_variable = 0; nth_variable < sizeof(tree)/sizeof(float); nth_variable ++)
 		{
-			if (nth_variable == tree.size() - 1) // if we've reached the last decision node
+			if (nth_variable == sizeof(tree)/sizeof(float) - 1) // if we've reached the last decision node
 			{
 				if (data_table[nth_sample][nth_variable] <= tree[nth_variable])
 				{
@@ -62,15 +88,15 @@ void leaf_assign(CSVRow data_table[], float * tree, std::vector<int> * leaf_bins
 	}
 }
 
-__global__ void cuda_leaf_assign()
+__global__ void cuda_leaf_assign(CSVRow data_table[], float *tree,std::vector<int> *leaf_bins, int *leafAssignment)
 {
 	int nth_sample = blockDim.x * blockIdx.x + threadIdx.x;
-	int upper = pow(2, tree.size()) - 1;
+	int upper = pow(2, sizeof(tree)/sizeof(float)) - 1;
 	int lower = 0;
 	// perform binary search to classify sample
-	for(int nth_variable = 0; nth_variable < tree.size(); nth_variable ++)
+	for(int nth_variable = 0; nth_variable < sizeof(tree)/sizeof(float); nth_variable ++)
 	{
-		if (nth_variable == tree.size() - 1) // if we've reached the last decision node
+		if (nth_variable == sizeof(tree)/sizeof(float) - 1) // if we've reached the last decision node
 		{
 			if (data_table[nth_sample][nth_variable] <= tree[nth_variable])
 			{
@@ -95,20 +121,21 @@ __global__ void cuda_leaf_assign()
 }
 
 // run this on CPU. Initialize the array of predictions
-void preprocessing(float * actual, float * predicted_array)
+void preprocessing(float * actual, float * predicted_array, CSVRow data_table[])
 {
 	float runningSum = 0;
 	//  take the average of all elements in the output's row of data_table
-	for (int i = 0; i < actual.size(); i++)
+	for (int i = 0; i < sizeof(actual)/sizeof(float); i++)
 	{
-			runningSum += data_table[outputIndex][i];
+			runningSum += data_table[data_table->size() - 1][i];
 	}
-	float average = runningSum/data_table[outputIndex].size();
+	float average = runningSum/data_table[data_table->size() - 1].size();
 
 	// place the average into each spot in predicted_array
-	for (int i = 0; i < predicted_array.size(); i++)
+	for (int i = 0; i < sizeof(predicted_array)/sizeof(float); i++)
 	{
-			memcpy(predicted_array[i], average, sizeof(float));
+            predicted_array[i] = average;
+			// memcpy(predicted_array[i], average, sizeof(float));
 	}
 }
 
@@ -129,20 +156,21 @@ __attribute__ ((noinline))  void end_roi()   {
   std::cout << "elapsed (sec): " << usec/1000000.0 << "\n";
 }
 
-__global__ void d_averageBins(float *d_leafBins, float *d_residual, float *d_leafValue, int max) {
+__global__ void d_averageBins(std::vector<int> *d_leafBins, float *d_residual, float *d_leafValue) {
     int i = threadIdx.x;
 
-    for (int j = 0; j < max; j++) {
-        d_leafValue[i] += d_residual[d_leafBins[i]];
+    for (int j = 0; j < d_leafBins[i].size(); j++) {
+        d_leafValue[i] += d_residual[d_leafBins[i][j]];
     }
 
-    d_leafValue[i] /= float(d_leafBins[i].size());
+    // d_leafValue[i] /= sizeof(d_leafBins[i])/sizeof(float);
+    d_leafValue[i] /= d_leafBins[i].size();
 }
 
-__global__ void d_getNewPredictions(float *d_predicted, float *d_leafValue, float *d_leafAssignment, float lr) {
+__global__ void d_getNewPredictions(float *d_predicted, float *d_leafValue, int *d_leafAssignment, float lr) {
     int i = blockDim.x * blockIdx.x + threadIdx.x;
 
-    d_predicted[i] += lr * d_leafValue[d_leafAssignment[i]];
+    d_predicted[i] += lr * d_leafValue[int(d_leafAssignment[i])];
 }
 
 __global__ void d_getNewResiduals(float *d_actual, float *d_predicted, float *d_residual) {
@@ -151,10 +179,10 @@ __global__ void d_getNewResiduals(float *d_actual, float *d_predicted, float *d_
     d_residual[i] = d_actual[i] - d_predicted[i];
 }
 
-void averageBins(float *leafBins, float *residual, float *leafValue) {
-    for (int i = 0; i < leafBins.size(); i++) {
+void averageBins(std::vector<int> *leafBins, float *residual, float *leafValue) {
+    for (int i = 0; i < sizeof(leafBins)/sizeof(float); i++) {
         for (int j = 0; j < leafBins[i].size(); j++) {
-            leafValue[i] += residual[leafBins[i][j]];
+            leafValue[i] += residual[int(leafBins[i][j])];
         }
 
         leafValue[i] /= leafBins[i].size();
@@ -162,14 +190,14 @@ void averageBins(float *leafBins, float *residual, float *leafValue) {
 
 }
 
-void getNewPredictions(float &predicted, float &leafValue, float &leafAssignment, float lr) {
-    for (int i = 0; i < predicted.size(); i++) {
+void getNewPredictions(float *predicted, float *leafValue, int *leafAssignment, float lr) {
+    for (int i = 0; i < sizeof(predicted)/sizeof(float); i++) {
         predicted[i] += lr * leafValue[leafAssignment[i]];
     }
 }
 
-void getNewResiduals(float &actual, float &predicted, float &residual) {
-    for (int i = 0; i < actual.size(); i++) {
+void getNewResiduals(float *actual, float *predicted, float *residual) {
+    for (int i = 0; i < sizeof(actual)/sizeof(float); i++) {
         residual[i] = actual[i] - predicted[i];
     }
 }
@@ -177,7 +205,7 @@ void getNewResiduals(float &actual, float &predicted, float &residual) {
 int main()
 {
 	std::string filename = N_VARIABLES + "d.txt";
-    std::ifstream       file(filename);
+    std::ifstream       file(filename.c_str());
 
     CSVRow				variable;
 
@@ -194,23 +222,23 @@ int main()
 
 
     // initialize data
-    float leafBins[N_VARIABLES] __attribute__((aligned(64)));
-    float leafAssignment[data_table.size()] __attribute__((aligned(64)));
+    int table_size = sizeof(data_table)/sizeof(float);
+    std::vector<int> leafBins[N_VARIABLES] __attribute__((aligned(64)));
+    int leafAssignment[table_size] __attribute__((aligned(64)));
     float tree[N_VARIABLES] __attribute__((aligned(64)));
-    float residual[data_table.size()] __attribute__((aligned(64)));
-    float leafValue[data_table.size()] __attribute__((aligned(64)));
-    float actual[data_table.size()] __attribute__((aligned(64)));
-    float predicted[data_table.size()] __attribute__((aligned(64)));
-    float resultGPU[data_table.size()] __attribute__((aligned(64)));
-    memcpy(actual, data_table[data_table.size()-1], data_table.size()*sizeof(float));
+    float residual[table_size] __attribute__((aligned(64)));
+    float leafValue[table_size] __attribute__((aligned(64)));
+    float actual[table_size] __attribute__((aligned(64)));
+    float predicted[table_size] __attribute__((aligned(64)));
+    float resultGPU[table_size] __attribute__((aligned(64)));
+    memcpy(&actual, &data_table[table_size-1], table_size*sizeof(float));
 
     // fill arrays
-    preprocessing(actual, predicted);
+    preprocessing(actual, predicted, data_table);
     initialize_tree(data_table, tree);
-    std::fill_n(leafBins, data_table.size(), 0);
-    std::fill_n(leafAssignment, data_table.size(), 0);
-    std::fill_n(residual, data_table.size(), 0);
-    std::fill_n(leafValue, data_table.size(), 0);
+    std::fill_n(leafAssignment, table_size, 0);
+    std::fill_n(residual, table_size, 0);
+    std::fill_n(leafValue, table_size, 0);
 
     // compute on CPU
     std::cout << "Begin CPU calculations" << std::endl;
@@ -225,13 +253,13 @@ int main()
 
     // Allocate memory
     cudaError_t err = cudaSuccess;
-    size_t size_input = data_table.size() * N_VARIABLES * sizeof(float);
-    size_t size_output = data_table.size() * sizeof(float);
+    size_t size_input = table_size * N_VARIABLES * sizeof(float);
+    size_t size_output = table_size * sizeof(float);
     size_t size_var = N_VARIABLES * sizeof(float);
 
-    float *d_leafBins;
-    float *d_leafAssignment;
-    float *d_data_table;
+    std::vector<int> *d_leafBins;
+    int *d_leafAssignment;
+    CSVRow *d_data_table;
     float *d_tree;
     float *d_actual;
     float *d_predicted;
@@ -360,7 +388,7 @@ int main()
     }
 
     //compute numBlocks, numThreads
-    int numBlocks = data_table.size() / MAX_THREADS, MAX_THREADS;
+    int numBlocks = table_size / MAX_THREADS;
     int numThreads = pow(2, N_VARIABLES);
 
     //compute on GPU
@@ -387,7 +415,7 @@ int main()
         exit(EXIT_FAILURE);
     }
 
-    compare(predicted, resultGPU, data_table.size());
+    compare(predicted, resultGPU, table_size);
 
 
     // Free device memory
