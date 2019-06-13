@@ -225,7 +225,7 @@ int main()
 
 
     // initialize data
-    int table_size = sizeof(data_table)/sizeof(float);
+    int table_size = sizeof(data_table)/(sizeof(float)*N_VARIABLES+1);
     std::vector<int> leafBins[N_VARIABLES] __attribute__((aligned(64)));
     int leafAssignment[table_size] __attribute__((aligned(64)));
     float tree[N_VARIABLES] __attribute__((aligned(64)));
@@ -256,13 +256,13 @@ int main()
 
     // Allocate memory
     cudaError_t err = cudaSuccess;
-    size_t size_input = table_size * N_VARIABLES * sizeof(float);
+    size_t size_input = table_size * (N_VARIABLES +1) * sizeof(float);
     size_t size_output = table_size * sizeof(float);
     size_t size_var = N_VARIABLES * sizeof(float);
 
     std::vector<int> *d_leafBins;
     int *d_leafAssignment;
-    CSVRow *d_data_table;
+    float *d_data_table;
     float *d_tree;
     float *d_actual;
     float *d_predicted;
