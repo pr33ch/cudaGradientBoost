@@ -43,8 +43,8 @@ void initialize_tree(CSVRow *data_table, float * tree)
         {
             average += data_table[nth_sample][nth_variable];
         }
-        average /= N_DATA;
-        // tree[nth_variable] = average / N_DATA;
+        // tree[nth_variable] = average;
+        average = average/N_DATA;
         memcpy(&tree[nth_variable], &average, sizeof(float));
     }
 }
@@ -76,14 +76,17 @@ void leaf_assign(CSVRow data_table[], float *tree, std::vector<int> *leaf_bins, 
                     leafAssignment[nth_sample] = upper;
                     leaf_bins[upper].push_back(nth_sample);
                 }
+                // std::cout << leafAssignment[nth_sample] << "\n";
             }
             if (data_table[nth_sample][nth_variable] <= tree[nth_variable])
             {
+                // std::cout << "here2" << "\n";   
                 upper = upper/2;
             }
             else
             {
-                lower = (upper - lower/2) + 1;
+                // std::cout << "here" << "\n";
+                lower = (upper-lower)/2 + 1;
             }
         }
     }
@@ -124,18 +127,18 @@ void leaf_assign(CSVRow data_table[], float *tree, std::vector<int> *leaf_bins, 
 // run this on CPU. Initialize the array of predictions
 void preprocessing(float * actual, float * predicted_array, CSVRow data_table[])
 {
-	float runningSum = 0;
-	//  take the average of all elements in the output's row of data_table
-	for (int i = 0; i < N_DATA; i++)
-	{
-			runningSum += data_table[i][N_VARIABLES];
-	}
-	float average = runningSum/N_DATA;
+    float runningSum = 0;
+    //  take the average of all elements in the output's row of data_table
+    for (int i = 0; i < N_DATA; i++)
+    {
+            runningSum += data_table[i][N_VARIABLES];
+    }
+    float average = runningSum/N_DATA;
     // std::cout << "average: " << average << std::endl;
 
-	// place the average into each spot in predicted_array
-	for (int i = 0; i < N_DATA; i++)
-	{
+    // place the average into each spot in predicted_array
+    for (int i = 0; i < N_DATA; i++)
+    {
             // predicted_array[i] = average;
             memcpy(&predicted_array[i], &average, sizeof(float));
     }
@@ -204,6 +207,7 @@ void averageBins(std::vector<int> *leafBins, float *residual, float *leafValue) 
     for (int i = 0; i < int(pow(2, N_VARIABLES)); i++) {
         for (int j = 0; j < leafBins[i].size(); j++) {
             leafValue[i] += residual[leafBins[i][j]];
+            // std::cout<< "res: "<< residual[leafBins[i][j]]<< "\n"; 
         }
 
         if (leafBins[i].size() != 0) {
@@ -212,11 +216,16 @@ void averageBins(std::vector<int> *leafBins, float *residual, float *leafValue) 
     }
 
 }
-
+// bool lookAtFirstIteration = true;
 void getNewPredictions(float *predicted, float *leafValue, int *leafAssignment, float lr) {
     for (int i = 0; i < N_DATA; i++) {
         predicted[i] += lr * leafValue[leafAssignment[i]];
+        // if (lookAtFirstIteration)
+        // {
+        //     std::cout<< "leafAssign: "<<leafAssignment[i] << "\t" << "predicted: " << predicted[i] << "\n";
+        // }
     }
+    // lookAtFirstIteration = false;
 }
 
 void getNewResiduals(float *actual, float *predicted, float *residual) {
@@ -232,7 +241,7 @@ int main()
     // std::string filename = N_VARIABLES + "d.txt";
     // std::ifstream       file("/home/ericdang/code/4d.txt");
     std::ifstream file;
-    file.open("/home/ericdang/code/4d.txt");
+    file.open("/home/willyang1247/4d.txt");
     CSVRow              variable;
 
     // data_table[i][j] corresponds to the ith data point and jth variable. If j = N_VARIABLES, j
@@ -269,7 +278,7 @@ int main()
     // get actual values
     for (int i = 0; i < N_DATA; i++) {
         actual[i] = data_table[i][N_VARIABLES];
-        std::cout << actual[i] << std::endl;
+        // std::cout << actual[i] << std::endl;
     }
 
 
@@ -504,7 +513,7 @@ int main()
 
     // print predicitions
     for (int i = 0; i < N_DATA; i++) {
-        std::cout << i << ":    " << predicted[i] << std::endl;
+        // std::cout << predicted[i] << std::endl;
     }
 
     compare(predicted, resultGPU, N_DATA);
