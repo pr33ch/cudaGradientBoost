@@ -36,15 +36,16 @@ void compare(float* cpu, float* gpu, int size) {
 
 void initialize_tree(CSVRow *data_table, float * tree)
 {
-    for (int nth_variable = 0; nth_variable < data_table[0].size() - 1; nth_variable++)
+    for (int nth_variable = 0; nth_variable < N_VARIABLES; nth_variable++)
     {
         float average = 0;
-        for (int nth_sample = 0; nth_sample < data_table->size(); nth_sample ++)
+        for (int nth_sample = 0; nth_sample < N_DATA; nth_sample ++)
         {
-            average += data_table[nth_sample][nth_variable]/data_table->size();
+            average += data_table[nth_sample][nth_variable];
         }
-        tree[nth_variable] = average;
-        // memcpy(tree[nth_variable], average, sizeof(float));
+        average /= N_DATA;
+        // tree[nth_variable] = average / N_DATA;
+        memcpy(&tree[nth_variable], &average, sizeof(float));
     }
 }
 
@@ -82,7 +83,7 @@ void leaf_assign(CSVRow data_table[], float *tree, std::vector<int> *leaf_bins, 
             }
             else
             {
-                lower = upper/2;
+                lower = (upper - lower/2) + 1;
             }
         }
     }
@@ -135,8 +136,8 @@ void preprocessing(float * actual, float * predicted_array, CSVRow data_table[])
 	// place the average into each spot in predicted_array
 	for (int i = 0; i < N_DATA; i++)
 	{
-            predicted_array[i] = average;
-            // memcpy(predicted_array[i], average, sizeof(float));
+            // predicted_array[i] = average;
+            memcpy(&predicted_array[i], &average, sizeof(float));
     }
 }
 
@@ -205,7 +206,9 @@ void averageBins(std::vector<int> *leafBins, float *residual, float *leafValue) 
             leafValue[i] += residual[leafBins[i][j]];
         }
 
-        leafValue[i] /= leafBins[i].size();
+        if (leafBins[i].size() != 0) {
+            leafValue[i] /= leafBins[i].size();
+        }
     }
 
 }
@@ -276,7 +279,7 @@ int main()
     // }
     preprocessing(actual, predicted, data_table);
     // for (int i = 0; i < 100; i ++){
-    //     std::cout << "predicted: " << predicted[i] << std::endl;
+    //     std::cout << "predicted: " << &predicted[i] << std::endl;
     // }
     // exit(0);
     // for (int i = 0; i < N_DATA; i++) {
@@ -284,10 +287,10 @@ int main()
     //     std::cout << actual[i] << std::endl;
     // }
     initialize_tree(data_table, tree);
-    leaf_assign(data_table, tree, leafBins, leafAssignment);
+    std::fill_n(leafValue, int(pow(2, N_VARIABLES)), 0);
     std::fill_n(leafAssignment, N_DATA, 0);
     std::fill_n(residual, N_DATA, 0);
-    std::fill_n(leafValue, int(pow(2, N_VARIABLES)), 0);
+    leaf_assign(data_table, tree, leafBins, leafAssignment);
 
     // Allocate memory
     cudaError_t err = cudaSuccess;
@@ -456,7 +459,13 @@ int main()
     std::cout << "Begin CPU calculations" << std::endl;
     begin_roi();
     for (int i = 0; i < ITERATIONS; i++) {
+        // for (int i = 0; i < N_DATA; i++) {
+        // std::cout << predicted[i] << std::endl;
+        // }
         getNewResiduals(actual, predicted, residual);
+        // for (int i =0; i < N_DATA; i++) {
+        //     std::cout << "After: " << residual[i] << std::endl;
+        // }
         averageBins(leafBins, residual, leafValue);
         getNewPredictions(predicted, leafValue, leafAssignment, LR);
         std::fill_n(leafValue, int(pow(2, N_VARIABLES)), 0);
@@ -495,7 +504,7 @@ int main()
 
     // print predicitions
     for (int i = 0; i < N_DATA; i++) {
-        std::cout << predicted[i] << std::endl;
+        std::cout << i << ":    " << predicted[i] << std::endl;
     }
 
     compare(predicted, resultGPU, N_DATA);
