@@ -30,11 +30,11 @@ y5 = y4 + 4.3 * e
 # ax.scatter(X, attr_b, attr_a, s=1)
 # plt.show()
 
-df = pd.DataFrame({'a': a, 'b': b, 'c': c, 'actual': y3}).transpose()
+df = pd.DataFrame({'a': a, 'b': b, 'c': c, 'actual': y3})
 df.to_csv('3d.txt', header=False, index=False, sep=',', mode='w')
-df = pd.DataFrame({'a': a, 'b': b, 'c': c, 'd': d, 'actual': y4}).transpose()
+df = pd.DataFrame({'a': a, 'b': b, 'c': c, 'd': d, 'actual': y4})
 df.to_csv('4d.txt', header=False, index=False, sep=',', mode='w')
-df = pd.DataFrame({'a': a, 'b': b, 'c': c, 'd': d, 'e': e, 'actual': y5}).transpose()
+df = pd.DataFrame({'a': a, 'b': b, 'c': c, 'd': d, 'e': e, 'actual': y5})
 df.to_csv('5d.txt', header=False, index=False, sep=',', mode='w')
 
 print('done')
