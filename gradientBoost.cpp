@@ -88,37 +88,37 @@ void leaf_assign(CSVRow data_table[], float *tree, std::vector<int> *leaf_bins, 
 	}
 }
 
-__global__ void cuda_leaf_assign(float* flat_data_table, float *tree,std::vector<int> *leaf_bins, int *leafAssignment)
-{
-	int nth_sample = blockDim.x * blockIdx.x + threadIdx.x;
-	int upper = pow(2, sizeof(tree)/sizeof(float)) - 1;
-	int lower = 0;
-	// perform binary search to classify sample
-	for(int nth_variable = 0; nth_variable < sizeof(tree)/sizeof(float); nth_variable ++)
-	{
-		if (nth_variable == sizeof(tree)/sizeof(float) - 1) // if we've reached the last decision node
-		{
-			if (data_table[nth_sample*N_VARIABLES + nth_variable] <= tree[nth_variable])
-			{
-				leafAssignment[nth_sample] = lower;
-				leaf_bins[lower].push_back(nth_sample);
-			}
-			else
-			{
-				leafAssignment[nth_sample] = upper;
-				leaf_bins[upper].push_back(nth_sample);
-			}
-		}
-		if (data_table[nth_sample*N_VARIABLES + nth_variable] <= tree[nth_variable])
-		{
-			upper = upper/2;
-		}
-		else
-		{
-			lower = upper/2;
-		}
-	}
-}
+// __global__ void cuda_leaf_assign(float* flat_data_table, float *tree,std::vector<int> *leaf_bins, int *leafAssignment)
+// {
+// 	int nth_sample = blockDim.x * blockIdx.x + threadIdx.x;
+// 	int upper = pow(2, sizeof(tree)/sizeof(float)) - 1;
+// 	int lower = 0;
+// 	// perform binary search to classify sample
+// 	for(int nth_variable = 0; nth_variable < sizeof(tree)/sizeof(float); nth_variable ++)
+// 	{
+// 		if (nth_variable == sizeof(tree)/sizeof(float) - 1) // if we've reached the last decision node
+// 		{
+// 			if (flat_data_table[nth_sample*N_VARIABLES + nth_variable] <= tree[nth_variable])
+// 			{
+// 				leafAssignment[nth_sample] = lower;
+// 				leaf_bins[lower].push_back(nth_sample);
+// 			}
+// 			else
+// 			{
+// 				leafAssignment[nth_sample] = upper;
+// 				leaf_bins[upper].push_back(nth_sample);
+// 			}
+// 		}
+// 		if (flat_data_table[nth_sample*N_VARIABLES + nth_variable] <= tree[nth_variable])
+// 		{
+// 			upper = upper/2;
+// 		}
+// 		else
+// 		{
+// 			lower = upper/2;
+// 		}
+// 	}
+// }
 
 // run this on CPU. Initialize the array of predictions
 void preprocessing(float * actual, float * predicted_array, CSVRow data_table[])
@@ -156,15 +156,28 @@ __attribute__ ((noinline))  void end_roi()   {
   std::cout << "elapsed (sec): " << usec/1000000.0 << "\n";
 }
 
-__global__ void d_averageBins(std::vector<int> *d_leafBins, float *d_residual, float *d_leafValue) {
+__global__ void d_averageBins(int *d_leafBins, float *d_residual, float *d_leafValue, int *bins) {
     int i = threadIdx.x;
+    int start;
+    if (i == 0) {
+        start = 0;
+    } else {
+        start = bins[i - 1];
+    }
+    int end = bins[i];
 
-    for (int j = 0; j < d_leafBins[i].size(); j++) {
-        d_leafValue[i] += d_residual[d_leafBins[i][j]];
+    for (int j = start; j < end; j++ ) {
+        d_leafValue[i] += d_residual[d_leafBins[j]];
     }
 
+    // d_leafValue[i] += d_residual[d_leafBins[i]]
+    // for (int j = 0; j < sizeof(d_leafBins[i])/sizeof(float); j++) {
+    //     d_leafValue[i] += d_residual[d_leafBins[i]];
+    // }
+
     // d_leafValue[i] /= sizeof(d_leafBins[i])/sizeof(float);
-    d_leafValue[i] /= d_leafBins[i].size();
+    d_leafValue[i] /= end;
+    // d_leafValue[i] /= d_leafBins[i].size();
 }
 
 __global__ void d_getNewPredictions(float *d_predicted, float *d_leafValue, int *d_leafAssignment, float lr) {
@@ -204,28 +217,29 @@ void getNewResiduals(float *actual, float *predicted, float *residual) {
 
 int main()
 {
-	std::string filename = N_VARIABLES + "d.txt";
-    std::ifstream       file(filename.c_str());
-
+ 	// std::string filename = N_VARIABLES + "d.txt";
+    // std::ifstream       file("/home/ericdang/code/4d.txt");
+    std::ifstream file;
+    file.open("/home/ericdang/code/4d.txt");
     CSVRow				variable;
 
     // data_table[i][j] corresponds to the ith data point and jth variable. If j = N_VARIABLES, j
     // is the output of the ith data point
     CSVRow              data_table[N_VARIABLES + 1];
-    float flat_data_table[102400*(N_VARIABLES+1)];
-
+    // float flat_data_table[102400*(N_VARIABLES+1)];
     int row = 0;
     while(file >> variable)
     {
         data_table[row] = variable;
-        memcpy(&flat_data_table[variable.size()*row], &variable, variable.size()*sizeof(float));
+        // memcpy(&flat_data_table[variable.size()*row], &variable, variable.size()*sizeof(float));
     	std::cout << "4th Element(" << data_table[row][3] << ")\n";
         row++;
     }
-
+    file.close();
 
     // initialize data
-    int table_size = sizeof(data_table)/(sizeof(float)*N_VARIABLES+1);
+    int table_size = sizeof(data_table)/(sizeof(float));
+    std::cout << table_size << std::endl;
     std::vector<int> leafBins[N_VARIABLES] __attribute__((aligned(64)));
     int leafAssignment[table_size] __attribute__((aligned(64)));
     float tree[N_VARIABLES] __attribute__((aligned(64)));
@@ -239,28 +253,23 @@ int main()
     // fill arrays
     preprocessing(actual, predicted, data_table);
     initialize_tree(data_table, tree);
+    leaf_assign(data_table, tree, leafBins, leafAssignment);
     std::fill_n(leafAssignment, table_size, 0);
     std::fill_n(residual, table_size, 0);
     std::fill_n(leafValue, table_size, 0);
-
-    // compute on CPU
-    std::cout << "Begin CPU calculations" << std::endl;
-    begin_roi();
-    leaf_assign(data_table, tree, leafBins, leafAssignment);
-    for (int i = 0; i < ITERATIONS; i++) {
-        getNewResiduals(actual, predicted, residual);
-        averageBins(leafBins, residual, leafValue);
-        getNewPredictions(predicted, leafValue, leafAssignment, LR);
-    }
-    end_roi();
 
     // Allocate memory
     cudaError_t err = cudaSuccess;
     size_t size_input = table_size * (N_VARIABLES +1) * sizeof(float);
     size_t size_output = table_size * sizeof(float);
     size_t size_var = N_VARIABLES * sizeof(float);
+    size_t size_bins = table_size * sizeof(int);
 
-    std::vector<int> *d_leafBins;
+    int bins[int(pow(2, N_VARIABLES))];
+    for (int i = 0; i < pow(2, N_VARIABLES); i++) {
+        bins[i] = leafBins[i].size();
+    }
+    int *d_leafBins;
     int *d_leafAssignment;
     float *d_data_table;
     float *d_tree;
@@ -269,13 +278,13 @@ int main()
     float *d_residual;
     float *d_leafValue;
 
-    // allocate d_leafBins memory
-    err = cudaMalloc((void **)&d_leafBins, size_output);
-    if (err != cudaSuccess)
-    {
-        fprintf(stderr, "Failed to allocate device vector d_leafBins (error code %s)!\n", cudaGetErrorString(err));
-        exit(EXIT_FAILURE);
-    }
+    // allocate d_tree memory
+    // err = cudaMalloc((void **)&d_tree, size_var);
+    // if (err != cudaSuccess)
+    // {
+    //     fprintf(stderr, "Failed to allocate device vector d_tree (error code %s)!\n", cudaGetErrorString(err));
+    //     exit(EXIT_FAILURE);
+    // }
 
     // allocate d_leafAssignment memory
     err = cudaMalloc((void **)&d_leafAssignment, size_output);
@@ -285,19 +294,19 @@ int main()
         exit(EXIT_FAILURE);
     }
 
+    // allocate d_leafBin memory
+    err = cudaMalloc((void **)&d_leafBins, size_bins);
+    if (err != cudaSuccess)
+    {
+        fprintf(stderr, "Failed to allocate device vector d_leafBin (error code %s)!\n", cudaGetErrorString(err));
+        exit(EXIT_FAILURE);
+    }
+
     // allocate d_data_table memory
     err = cudaMalloc((void **)&d_data_table, size_input);
     if (err != cudaSuccess)
     {
         fprintf(stderr, "Failed to allocate device vector d_data_table (error code %s)!\n", cudaGetErrorString(err));
-        exit(EXIT_FAILURE);
-    }
-
-    // allocate d_tree memory
-    err = cudaMalloc((void **)&d_tree, size_var);
-    if (err != cudaSuccess)
-    {
-        fprintf(stderr, "Failed to allocate device vector d_tree (error code %s)!\n", cudaGetErrorString(err));
         exit(EXIT_FAILURE);
     }
 
@@ -334,7 +343,7 @@ int main()
     }
 
     // transfer memory associated with initalized vars from host to device
-    err = cudaMemcpy(d_leafBins, leafBins, size_output, cudaMemcpyHostToDevice);
+    err = cudaMemcpy(d_leafBins, leafBins, size_bins, cudaMemcpyHostToDevice);
     if (err != cudaSuccess)
     {
         fprintf(stderr, "Failed to copy vector from host to device (error code %s)!\n", cudaGetErrorString(err));
@@ -355,12 +364,12 @@ int main()
         exit(EXIT_FAILURE);
     }
 
-    err = cudaMemcpy(d_tree, tree, size_output, cudaMemcpyHostToDevice);
-    if (err != cudaSuccess)
-    {
-        fprintf(stderr, "Failed to copy vector from host to device (error code %s)!\n", cudaGetErrorString(err));
-        exit(EXIT_FAILURE);
-    }
+    // err = cudaMemcpy(d_tree, tree, size_output, cudaMemcpyHostToDevice);
+    // if (err != cudaSuccess)
+    // {
+    //     fprintf(stderr, "Failed to copy vector from host to device (error code %s)!\n", cudaGetErrorString(err));
+    //     exit(EXIT_FAILURE);
+    // }
 
     err = cudaMemcpy(d_actual, actual, size_output, cudaMemcpyHostToDevice);
     if (err != cudaSuccess)
@@ -390,6 +399,16 @@ int main()
         exit(EXIT_FAILURE);
     }
 
+    // compute on CPU
+    std::cout << "Begin CPU calculations" << std::endl;
+    begin_roi();
+    for (int i = 0; i < ITERATIONS; i++) {
+        getNewResiduals(actual, predicted, residual);
+        averageBins(leafBins, residual, leafValue);
+        getNewPredictions(predicted, leafValue, leafAssignment, LR);
+    }
+    end_roi();
+
     //compute numBlocks, numThreads
     int numBlocks = table_size / MAX_THREADS;
     int numThreads = pow(2, N_VARIABLES);
@@ -397,12 +416,12 @@ int main()
     //compute on GPU
     std::cout << "Begin GPU calculations" << std::endl;
     begin_roi();
-    cuda_leaf_assign<<<numBlocks, MAX_THREADS>>>(d_data_table, d_tree, d_leafBins, d_leafAssignment);
+    // cuda_leaf_assign<<<numBlocks, MAX_THREADS>>>(d_data_table, d_tree, d_leafBins, d_leafAssignment);
     cudaDeviceSynchronize();
     for (int i = 0; i < ITERATIONS; i++) {
         d_getNewResiduals<<<numBlocks, MAX_THREADS>>>(d_actual, d_predicted, d_residual);
         cudaDeviceSynchronize();
-        d_averageBins<<<1, numThreads>>>(d_leafBins, d_residual, d_leafValue);
+        d_averageBins<<<1, numThreads>>>(d_leafBins, d_residual, d_leafValue, bins);
         cudaDeviceSynchronize();
         d_getNewPredictions<<<numBlocks, MAX_THREADS>>>(d_predicted, d_leafValue, d_leafAssignment, LR);
         cudaDeviceSynchronize();
@@ -443,12 +462,12 @@ int main()
         exit(EXIT_FAILURE);
     }
 
-    err = cudaFree(d_tree);
-    if (err != cudaSuccess)
-    {
-        fprintf(stderr, "Failed to free device vector d_leafBins (error code %s)!\n", cudaGetErrorString(err));
-        exit(EXIT_FAILURE);
-    }
+    // err = cudaFree(d_tree);
+    // if (err != cudaSuccess)
+    // {
+    //     fprintf(stderr, "Failed to free device vector d_leafBins (error code %s)!\n", cudaGetErrorString(err));
+    //     exit(EXIT_FAILURE);
+    // }
 
     err = cudaFree(d_predicted);
     if (err != cudaSuccess)
