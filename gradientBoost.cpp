@@ -14,7 +14,7 @@ void compare(float* cpu, float* gpu, int size) {
   bool error = false;
   for(int i = 0; i < size; ++i) {
       float diff = cpu[i] - gpu[i];
-      if(diff>0.001f || diff <-0.001f) {
+      if(diff > 3 || diff < -3) {
       error = true;
       break;
     }
@@ -24,7 +24,7 @@ void compare(float* cpu, float* gpu, int size) {
       std::cout << i << " " << cpu[i] << ":" << gpu[i];;
 
       float diff = cpu[i] - gpu[i];
-      if(diff>0.001f || diff <-0.001f) {
+      if(diff>3 || diff <-3) {
         std::cout << " \t\tERROR";
       }
       std::cout << "\n";
