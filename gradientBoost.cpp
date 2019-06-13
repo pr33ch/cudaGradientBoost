@@ -6,6 +6,8 @@
 #include "preprocessing.h"
 #include "initialize_tree.h"
 #include "leaf_assign.h"
+#include <inttypes.h>
+#include <sys/time.h>
 
 #define N_VARIABLES 4
 #define N_DATA 100000
@@ -13,7 +15,24 @@
 #define LR 0.1
 #define MAX_THREADS 1024
 
-__global__ void averageBins(float *d_leafBins, float *d_residual, float *d_leafValue, int max) {
+static __inline__ uint64_t gettime(void) {
+  struct timeval tv;
+  gettimeofday(&tv, NULL);
+  return (((uint64_t)tv.tv_sec) * 1000000 + ((uint64_t)tv.tv_usec));
+}
+
+static uint64_t usec;
+
+__attribute__ ((noinline))  void begin_roi() {
+  usec=gettime();
+}
+
+__attribute__ ((noinline))  void end_roi()   {
+  usec=(gettime()-usec);
+  std::cout << "elapsed (sec): " << usec/1000000.0 << "\n";
+}
+
+__global__ void d_averageBins(float *d_leafBins, float *d_residual, float *d_leafValue, int max) {
     int i = threadIdx.x;
 
     for (int j = 0; j < max; j++) {
@@ -23,13 +42,13 @@ __global__ void averageBins(float *d_leafBins, float *d_residual, float *d_leafV
     d_leafValue[i] /= float(d_leafBins[i].size());
 }
 
-__global__ void getNewPredictions(float *d_predicted, float *d_leafValue, float *d_leafAssignment, float lr) {
+__global__ void d_getNewPredictions(float *d_predicted, float *d_leafValue, float *d_leafAssignment, float lr) {
     int i = blockDim.x * blockIdx.x + threadIdx.x;
 
     d_predicted[i] += lr * d_leafValue[d_leafAssignment[i]];
 }
 
-__global__ void getNewResiduals(float *d_actual, float *d_predicted, float *d_residual) {
+__global__ void d_getNewResiduals(float *d_actual, float *d_predicted, float *d_residual) {
     int i = blockDim.x * blockIdx.x + threadIdx.x;
 
     d_residual[i] = d_actual[i] - d_predicted[i];
@@ -60,7 +79,7 @@ void getNewResiduals(float &actual, float &predicted, float &residual) {
 
 int main()
 {
-	std::string filename = std::to_string(N_VARIABLES) + "d.txt";
+	std::string filename = N_VARIABLES + "d.txt";
     std::ifstream       file(filename);
 
     CSVRow				variable;
@@ -92,7 +111,7 @@ int main()
     preprocessing(actual, predicted);
     initialize_tree(data_table, tree);
     std::fill_n(leafBins, data_table.size(), 0);
-    std::fill_n(leafAssignment, data_table.size(), 0)
+    std::fill_n(leafAssignment, data_table.size(), 0);
     std::fill_n(residual, data_table.size(), 0);
     std::fill_n(leafValue, data_table.size(), 0);
 
@@ -253,11 +272,11 @@ int main()
     cuda_leaf_assign<<<numBlocks, MAX_THREADS>>>(d_data_table, d_tree, d_leafBins, d_leafAssignment);
     cudaDeviceSynchronize();
     for (int i = 0; i < ITERATIONS; i++) {
-        getNewResiduals<<<numBlocks, MAX_THREADS>>>(d_actual, d_predicted, d_residual);
+        d_getNewResiduals<<<numBlocks, MAX_THREADS>>>(d_actual, d_predicted, d_residual);
         cudaDeviceSynchronize();
-        averageBins<<<1, numThreads>>>(d_leafBins, d_residual, d_leafValue);
+        d_averageBins<<<1, numThreads>>>(d_leafBins, d_residual, d_leafValue);
         cudaDeviceSynchronize();
-        getNewPredictions<<<numBlocks, MAX_THREADS>>>(d_predicted, d_leafValue, d_leafAssignment, LR);
+        d_getNewPredictions<<<numBlocks, MAX_THREADS>>>(d_predicted, d_leafValue, d_leafAssignment, LR);
         cudaDeviceSynchronize();
     }
     end_roi();
