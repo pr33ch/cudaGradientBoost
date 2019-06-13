@@ -9,12 +9,12 @@
 
 void leaf_assign(CSVRow data_table[], float * tree, std::vector<int> * leaf_bins, int * leafAssignment)
 {
-	for (int nth_sample = 0; nth_sample ++; nth_sample < data_table.size())
+	for (int nth_sample = 0; nth_sample < data_table.size(); nth_sample ++)
 	{
 		int upper = pow(2, tree.size()) - 1;
 		int lower = 0;
 		// perform binary search to classify sample
-		for(int nth_variable = 0; nth_variable ++; nth_variable < tree.size())
+		for(int nth_variable = 0; nth_variable < tree.size(); nth_variable ++)
 		{
 			if (nth_variable == tree.size() - 1) // if we've reached the last decision node
 			{
@@ -47,7 +47,7 @@ __global__ void cuda_leaf_assign()
 	int upper = pow(2, tree.size()) - 1;
 	int lower = 0;
 	// perform binary search to classify sample
-	for(int nth_variable = 0; nth_variable ++; nth_variable < tree.size())
+	for(int nth_variable = 0; nth_variable < tree.size(); nth_variable ++)
 	{
 		if (nth_variable == tree.size() - 1) // if we've reached the last decision node
 		{
