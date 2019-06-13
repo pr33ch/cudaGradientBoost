@@ -125,14 +125,14 @@ void preprocessing(float * actual, float * predicted_array, CSVRow data_table[])
 {
 	float runningSum = 0;
 	//  take the average of all elements in the output's row of data_table
-	for (int i = 0; i < sizeof(actual)/sizeof(float); i++)
+	for (int i = 0; i < N_DATA; i++)
 	{
-			runningSum += data_table[data_table->size() - 1][i];
+			runningSum += data_table[i][N_VARIABLES];
 	}
-	float average = runningSum/data_table[data_table->size() - 1].size();
+	float average = runningSum/data_table[N_VARIABLES].size();
 
 	// place the average into each spot in predicted_array
-	for (int i = 0; i < sizeof(predicted_array)/sizeof(float); i++)
+	for (int i = 0; i < N_DATA; i++)
 	{
             predicted_array[i] = average;
 			// memcpy(predicted_array[i], average, sizeof(float));
@@ -250,24 +250,30 @@ int main()
     float leafValue[int(pow(2, N_VARIABLES))] __attribute__((aligned(64)));
     float actual[N_DATA] __attribute__((aligned(64)));
     float predicted[N_DATA] __attribute__((aligned(64)));
-    float resultGPU[N_DATA];
+    float resultGPU[N_DATA] __attribute__((aligned(64)));
 
     for (int i = 0; i < N_DATA; i++) {
         actual[i] = data_table[i][N_VARIABLES];
     }
 
     // fill arrays
+    std::cout << sizeof(resultGPU) << std::endl;
+    std::cout << sizeof(predicted) << std::endl;
     preprocessing(actual, predicted, data_table);
+    std::cout << sizeof(resultGPU) << std::endl;
+    std::cout << sizeof(predicted) << std::endl;
     initialize_tree(data_table, tree);
     leaf_assign(data_table, tree, leafBins, leafAssignment);
     std::fill_n(leafAssignment, N_DATA, 0);
     std::fill_n(residual, N_DATA, 0);
     std::fill_n(leafValue, int(pow(2, N_VARIABLES)), 0);
+    // resultGPU = predicted;
 
     // Allocate memory
     cudaError_t err = cudaSuccess;
     // size_t size_input = table_size * (N_VARIABLES +1) * sizeof(float);
     size_t size_output = N_DATA * sizeof(float);
+    std::cout << size_output << std::endl;
     // size_t size_var = N_VARIABLES * sizeof(float);
     size_t size_bins = N_DATA * sizeof(int);
 
@@ -277,6 +283,7 @@ int main()
     }
     int *d_leafBins;
     int *d_leafAssignment;
+    int *d_bins;
     float *d_data_table;
     float *d_tree;
     float *d_actual;
@@ -297,6 +304,14 @@ int main()
     if (err != cudaSuccess)
     {
         fprintf(stderr, "Failed to allocate device vector d_leafAssignment (error code %s)!\n", cudaGetErrorString(err));
+        exit(EXIT_FAILURE);
+    }
+
+    // allocate d_bins memory
+    err = cudaMalloc((void **)&d_bins, pow(2, N_VARIABLES) * sizeof(int));
+    if (err != cudaSuccess)
+    {
+        fprintf(stderr, "Failed to allocate device vector d_bins (error code %s)!\n", cudaGetErrorString(err));
         exit(EXIT_FAILURE);
     }
 
@@ -363,6 +378,13 @@ int main()
         exit(EXIT_FAILURE);
     }
 
+    err = cudaMemcpy(d_bins, bins, pow(2, N_VARIABLES) * sizeof(int), cudaMemcpyHostToDevice);
+    if (err != cudaSuccess)
+    {
+        fprintf(stderr, "Failed to copy vector from host to device (error code %s)!\n", cudaGetErrorString(err));
+        exit(EXIT_FAILURE);
+    }
+
     // err = cudaMemcpy(d_data_table, data_table, size_input, cudaMemcpyHostToDevice);
     // if (err != cudaSuccess)
     // {
@@ -419,6 +441,14 @@ int main()
     int numBlocks = N_DATA / MAX_THREADS;
     int numThreads = pow(2, N_VARIABLES);
 
+    // // transfer memory from device to host
+    // err = cudaMemcpy(resultGPU, d_predicted, size_output, cudaMemcpyDeviceToHost);
+    // if (err != cudaSuccess)
+    // {
+    //     fprintf(stderr, "Failed to copy vector d_predicted from device to host (error code %s)!\n", cudaGetErrorString(err));
+    //     exit(EXIT_FAILURE);
+    // }
+
     //compute on GPU
     std::cout << "Begin GPU calculations" << std::endl;
     begin_roi();
@@ -427,7 +457,7 @@ int main()
     for (int i = 0; i < ITERATIONS; i++) {
         d_getNewResiduals<<<numBlocks, MAX_THREADS>>>(d_actual, d_predicted, d_residual);
         cudaDeviceSynchronize();
-        d_averageBins<<<1, numThreads>>>(d_leafBins, d_residual, d_leafValue, bins);
+        d_averageBins<<<1, numThreads>>>(d_leafBins, d_residual, d_leafValue, d_bins);
         cudaDeviceSynchronize();
         d_getNewPredictions<<<numBlocks, MAX_THREADS>>>(d_predicted, d_leafValue, d_leafAssignment, LR);
         cudaDeviceSynchronize();
@@ -436,7 +466,7 @@ int main()
 
 
     // transfer memory from device to host
-    err = cudaMemcpy(&resultGPU, d_predicted, size_output, cudaMemcpyDeviceToHost);
+    err = cudaMemcpy(resultGPU, d_predicted, size_output, cudaMemcpyDeviceToHost);
     if (err != cudaSuccess)
     {
         fprintf(stderr, "Failed to copy vector d_predicted from device to host (error code %s)!\n", cudaGetErrorString(err));
