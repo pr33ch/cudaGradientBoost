@@ -16,7 +16,7 @@
 __global__ void averageBins(float *d_leafBins, float *d_residual, float *d_leafValue, int max) {
     int i = threadIdx.x;
 
-    for (int j = 0; j < max, j++) {
+    for (int j = 0; j < max; j++) {
         d_leafValue[i] += d_residual[d_leafBins[i]];
     }
 
@@ -35,9 +35,9 @@ __global__ void getNewResiduals(float *d_actual, float *d_predicted, float *d_re
     d_residual[i] = d_actual[i] - d_predicted[i];
 }
 
-void averageBins(float &leafBins, float &residual, float &leafValue) {
-    for (int i = 0; i < leafBins.size(), i++) {
-        for (int j = 0; j < leafBins[i].size(), j++) {
+void averageBins(float *leafBins, float *residual, float *leafValue) {
+    for (int i = 0; i < leafBins.size(); i++) {
+        for (int j = 0; j < leafBins[i].size(); j++) {
             leafValue[i] += residual[leafBins[i][j]];
         }
 
