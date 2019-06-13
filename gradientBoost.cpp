@@ -5,7 +5,7 @@
 #include <math.h>
 
 #define N_VARIABLES 4
-#define N_DATA 100000
+#define N_DATA 102400
 #define ITERATIONS 3000
 #define LR 0.1
 #define MAX_THREADS 1024
@@ -225,7 +225,7 @@ int main()
 
     // data_table[i][j] corresponds to the ith data point and jth variable. If j = N_VARIABLES, j
     // is the output of the ith data point
-    CSVRow              data_table[N_VARIABLES + 1];
+    CSVRow              data_table[N_DATA];
     // float flat_data_table[102400*(N_VARIABLES+1)];
     int row = 0;
     while(file >> variable)
@@ -236,34 +236,40 @@ int main()
         row++;
     }
     file.close();
+    // std::cout << row << std::endl;
+    // std::cout << data_table.size() << std::endl;
 
     // initialize data
-    int table_size = sizeof(data_table)/(sizeof(float));
-    std::cout << table_size << std::endl;
+    // int table_size = sizeof(data_table)/(sizeof(float));
+    // std::cout << sizeof(data_table) << std::endl;
+    // std::cout << table_size << std::endl;
     std::vector<int> leafBins[N_VARIABLES] __attribute__((aligned(64)));
-    int leafAssignment[table_size] __attribute__((aligned(64)));
+    int leafAssignment[N_DATA] __attribute__((aligned(64)));
     float tree[N_VARIABLES] __attribute__((aligned(64)));
-    float residual[table_size] __attribute__((aligned(64)));
-    float leafValue[table_size] __attribute__((aligned(64)));
-    float actual[table_size] __attribute__((aligned(64)));
-    float predicted[table_size] __attribute__((aligned(64)));
-    float resultGPU[table_size] __attribute__((aligned(64)));
-    memcpy(&actual, &data_table[table_size-1], table_size*sizeof(float));
+    float residual[N_DATA] __attribute__((aligned(64)));
+    float leafValue[int(pow(2, N_VARIABLES))] __attribute__((aligned(64)));
+    float actual[N_DATA] __attribute__((aligned(64)));
+    float predicted[N_DATA] __attribute__((aligned(64)));
+    float resultGPU[N_DATA];
+
+    for (int i = 0; i < N_DATA; i++) {
+        actual[i] = data_table[i][N_VARIABLES];
+    }
 
     // fill arrays
     preprocessing(actual, predicted, data_table);
     initialize_tree(data_table, tree);
     leaf_assign(data_table, tree, leafBins, leafAssignment);
-    std::fill_n(leafAssignment, table_size, 0);
-    std::fill_n(residual, table_size, 0);
-    std::fill_n(leafValue, table_size, 0);
+    std::fill_n(leafAssignment, N_DATA, 0);
+    std::fill_n(residual, N_DATA, 0);
+    std::fill_n(leafValue, int(pow(2, N_VARIABLES)), 0);
 
     // Allocate memory
     cudaError_t err = cudaSuccess;
-    size_t size_input = table_size * (N_VARIABLES +1) * sizeof(float);
-    size_t size_output = table_size * sizeof(float);
-    size_t size_var = N_VARIABLES * sizeof(float);
-    size_t size_bins = table_size * sizeof(int);
+    // size_t size_input = table_size * (N_VARIABLES +1) * sizeof(float);
+    size_t size_output = N_DATA * sizeof(float);
+    // size_t size_var = N_VARIABLES * sizeof(float);
+    size_t size_bins = N_DATA * sizeof(int);
 
     int bins[int(pow(2, N_VARIABLES))];
     for (int i = 0; i < pow(2, N_VARIABLES); i++) {
@@ -302,13 +308,13 @@ int main()
         exit(EXIT_FAILURE);
     }
 
-    // allocate d_data_table memory
-    err = cudaMalloc((void **)&d_data_table, size_input);
-    if (err != cudaSuccess)
-    {
-        fprintf(stderr, "Failed to allocate device vector d_data_table (error code %s)!\n", cudaGetErrorString(err));
-        exit(EXIT_FAILURE);
-    }
+    // // allocate d_data_table memory
+    // err = cudaMalloc((void **)&d_data_table, size_input);
+    // if (err != cudaSuccess)
+    // {
+    //     fprintf(stderr, "Failed to allocate device vector d_data_table (error code %s)!\n", cudaGetErrorString(err));
+    //     exit(EXIT_FAILURE);
+    // }
 
     // allocate d_actual memory
     err = cudaMalloc((void **)&d_actual, size_output);
@@ -357,12 +363,12 @@ int main()
         exit(EXIT_FAILURE);
     }
 
-    err = cudaMemcpy(d_data_table, data_table, size_input, cudaMemcpyHostToDevice);
-    if (err != cudaSuccess)
-    {
-        fprintf(stderr, "Failed to copy vector from host to device (error code %s)!\n", cudaGetErrorString(err));
-        exit(EXIT_FAILURE);
-    }
+    // err = cudaMemcpy(d_data_table, data_table, size_input, cudaMemcpyHostToDevice);
+    // if (err != cudaSuccess)
+    // {
+    //     fprintf(stderr, "Failed to copy vector from host to device (error code %s)!\n", cudaGetErrorString(err));
+    //     exit(EXIT_FAILURE);
+    // }
 
     // err = cudaMemcpy(d_tree, tree, size_output, cudaMemcpyHostToDevice);
     // if (err != cudaSuccess)
@@ -410,7 +416,7 @@ int main()
     end_roi();
 
     //compute numBlocks, numThreads
-    int numBlocks = table_size / MAX_THREADS;
+    int numBlocks = N_DATA / MAX_THREADS;
     int numThreads = pow(2, N_VARIABLES);
 
     //compute on GPU
@@ -430,14 +436,14 @@ int main()
 
 
     // transfer memory from device to host
-    err = cudaMemcpy(resultGPU, d_predicted, size_output, cudaMemcpyDeviceToHost);
+    err = cudaMemcpy(&resultGPU, d_predicted, size_output, cudaMemcpyDeviceToHost);
     if (err != cudaSuccess)
     {
         fprintf(stderr, "Failed to copy vector d_predicted from device to host (error code %s)!\n", cudaGetErrorString(err));
         exit(EXIT_FAILURE);
     }
 
-    compare(predicted, resultGPU, table_size);
+    compare(predicted, resultGPU, N_DATA);
 
 
     // Free device memory
@@ -455,12 +461,12 @@ int main()
         exit(EXIT_FAILURE);
     }
 
-    err = cudaFree(d_data_table);
-    if (err != cudaSuccess)
-    {
-        fprintf(stderr, "Failed to free device vector d_leafBins (error code %s)!\n", cudaGetErrorString(err));
-        exit(EXIT_FAILURE);
-    }
+    // err = cudaFree(d_data_table);
+    // if (err != cudaSuccess)
+    // {
+    //     fprintf(stderr, "Failed to free device vector d_leafBins (error code %s)!\n", cudaGetErrorString(err));
+    //     exit(EXIT_FAILURE);
+    // }
 
     // err = cudaFree(d_tree);
     // if (err != cudaSuccess)
