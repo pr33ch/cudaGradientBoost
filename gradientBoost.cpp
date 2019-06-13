@@ -36,16 +36,16 @@ void compare(float* cpu, float* gpu, int size) {
 
 void initialize_tree(CSVRow *data_table, float * tree)
 {
-	for (int nth_variable = 0; nth_variable < data_table[0].size() - 1; nth_variable++)
-	{
-		float average = 0;
-		for (int nth_sample = 0; nth_sample < data_table->size(); nth_sample ++)
-		{
-			average += data_table[nth_sample][nth_variable]/data_table->size();
-		}
+    for (int nth_variable = 0; nth_variable < data_table[0].size() - 1; nth_variable++)
+    {
+        float average = 0;
+        for (int nth_sample = 0; nth_sample < data_table->size(); nth_sample ++)
+        {
+            average += data_table[nth_sample][nth_variable]/data_table->size();
+        }
         tree[nth_variable] = average;
-		// memcpy(tree[nth_variable], average, sizeof(float));
-	}
+        // memcpy(tree[nth_variable], average, sizeof(float));
+    }
 }
 
 // naive CPU implementation of leaf assignment of each datapoint
@@ -56,68 +56,68 @@ void initialize_tree(CSVRow *data_table, float * tree)
 
 void leaf_assign(CSVRow data_table[], float *tree, std::vector<int> *leaf_bins, int * leafAssignment)
 {
-	for (int nth_sample = 0; nth_sample < data_table->size(); nth_sample ++)
-	{
-		int upper = pow(2, sizeof(tree)/sizeof(float)) - 1;
-		int lower = 0;
-		// perform binary search to classify sample
-		for(int nth_variable = 0; nth_variable < sizeof(tree)/sizeof(float); nth_variable ++)
-		{
-			if (nth_variable == sizeof(tree)/sizeof(float) - 1) // if we've reached the last decision node
-			{
-				if (data_table[nth_sample][nth_variable] <= tree[nth_variable])
-				{
-					leafAssignment[nth_sample] = lower;
-					leaf_bins[lower].push_back(nth_sample);
-				}
-				else
-				{
-					leafAssignment[nth_sample] = upper;
-					leaf_bins[upper].push_back(nth_sample);
-				}
-			}
-			if (data_table[nth_sample][nth_variable] <= tree[nth_variable])
-			{
-				upper = upper/2;
-			}
-			else
-			{
-				lower = upper/2;
-			}
-		}
-	}
+    for (int nth_sample = 0; nth_sample < N_DATA; nth_sample ++)
+    {
+        int upper = pow(2, N_VARIABLES) - 1;
+        int lower = 0;
+        // perform binary search to classify sample
+        for(int nth_variable = 0; nth_variable < N_VARIABLES; nth_variable ++)
+        {
+            if (nth_variable == N_VARIABLES - 1) // if we've reached the last decision node
+            {
+                if (data_table[nth_sample][nth_variable] <= tree[nth_variable])
+                {
+                    leafAssignment[nth_sample] = lower;
+                    leaf_bins[lower].push_back(nth_sample);
+                }
+                else
+                {
+                    leafAssignment[nth_sample] = upper;
+                    leaf_bins[upper].push_back(nth_sample);
+                }
+            }
+            if (data_table[nth_sample][nth_variable] <= tree[nth_variable])
+            {
+                upper = upper/2;
+            }
+            else
+            {
+                lower = upper/2;
+            }
+        }
+    }
 }
 
 // __global__ void cuda_leaf_assign(float* flat_data_table, float *tree,std::vector<int> *leaf_bins, int *leafAssignment)
 // {
-// 	int nth_sample = blockDim.x * blockIdx.x + threadIdx.x;
-// 	int upper = pow(2, sizeof(tree)/sizeof(float)) - 1;
-// 	int lower = 0;
-// 	// perform binary search to classify sample
-// 	for(int nth_variable = 0; nth_variable < sizeof(tree)/sizeof(float); nth_variable ++)
-// 	{
-// 		if (nth_variable == sizeof(tree)/sizeof(float) - 1) // if we've reached the last decision node
-// 		{
-// 			if (flat_data_table[nth_sample*N_VARIABLES + nth_variable] <= tree[nth_variable])
-// 			{
-// 				leafAssignment[nth_sample] = lower;
-// 				leaf_bins[lower].push_back(nth_sample);
-// 			}
-// 			else
-// 			{
-// 				leafAssignment[nth_sample] = upper;
-// 				leaf_bins[upper].push_back(nth_sample);
-// 			}
-// 		}
-// 		if (flat_data_table[nth_sample*N_VARIABLES + nth_variable] <= tree[nth_variable])
-// 		{
-// 			upper = upper/2;
-// 		}
-// 		else
-// 		{
-// 			lower = upper/2;
-// 		}
-// 	}
+//  int nth_sample = blockDim.x * blockIdx.x + threadIdx.x;
+//  int upper = pow(2, sizeof(tree)/sizeof(float)) - 1;
+//  int lower = 0;
+//  // perform binary search to classify sample
+//  for(int nth_variable = 0; nth_variable < sizeof(tree)/sizeof(float); nth_variable ++)
+//  {
+//      if (nth_variable == sizeof(tree)/sizeof(float) - 1) // if we've reached the last decision node
+//      {
+//          if (flat_data_table[nth_sample*N_VARIABLES + nth_variable] <= tree[nth_variable])
+//          {
+//              leafAssignment[nth_sample] = lower;
+//              leaf_bins[lower].push_back(nth_sample);
+//          }
+//          else
+//          {
+//              leafAssignment[nth_sample] = upper;
+//              leaf_bins[upper].push_back(nth_sample);
+//          }
+//      }
+//      if (flat_data_table[nth_sample*N_VARIABLES + nth_variable] <= tree[nth_variable])
+//      {
+//          upper = upper/2;
+//      }
+//      else
+//      {
+//          lower = upper/2;
+//      }
+//  }
 // }
 
 // run this on CPU. Initialize the array of predictions
@@ -135,8 +135,8 @@ void preprocessing(float * actual, float * predicted_array, CSVRow data_table[])
 	for (int i = 0; i < N_DATA; i++)
 	{
             predicted_array[i] = average;
-			// memcpy(predicted_array[i], average, sizeof(float));
-	}
+            // memcpy(predicted_array[i], average, sizeof(float));
+    }
 }
 
 static __inline__ uint64_t gettime(void) {
@@ -217,11 +217,11 @@ void getNewResiduals(float *actual, float *predicted, float *residual) {
 
 int main()
 {
- 	// std::string filename = N_VARIABLES + "d.txt";
+    // std::string filename = N_VARIABLES + "d.txt";
     // std::ifstream       file("/home/ericdang/code/4d.txt");
     std::ifstream file;
-    file.open("/home/ericdang/code/4d.txt");
-    CSVRow				variable;
+    file.open("/home/willyang1247/4d.txt");
+    CSVRow              variable;
 
     // data_table[i][j] corresponds to the ith data point and jth variable. If j = N_VARIABLES, j
     // is the output of the ith data point
@@ -232,7 +232,7 @@ int main()
     {
         data_table[row] = variable;
         // memcpy(&flat_data_table[variable.size()*row], &variable, variable.size()*sizeof(float));
-    	std::cout << "4th Element(" << data_table[row][3] << ")\n";
+        // std::cout << "4th Element(" << data_table[row][3] << ")\n";
         row++;
     }
     file.close();
@@ -243,7 +243,7 @@ int main()
     // int table_size = sizeof(data_table)/(sizeof(float));
     // std::cout << sizeof(data_table) << std::endl;
     // std::cout << table_size << std::endl;
-    std::vector<int> leafBins[N_VARIABLES] __attribute__((aligned(64)));
+    std::vector<int> leafBins[int(pow(2, N_VARIABLES))] __attribute__((aligned(64)));
     int leafAssignment[N_DATA] __attribute__((aligned(64)));
     float tree[N_VARIABLES] __attribute__((aligned(64)));
     float residual[N_DATA] __attribute__((aligned(64)));
@@ -280,6 +280,7 @@ int main()
     int bins[int(pow(2, N_VARIABLES))];
     for (int i = 0; i < pow(2, N_VARIABLES); i++) {
         bins[i] = leafBins[i].size();
+        std::cout << "bin value: " << bins[i] << "\n";
     }
     int *d_leafBins;
     int *d_leafAssignment;
