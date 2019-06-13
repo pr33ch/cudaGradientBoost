@@ -220,7 +220,7 @@ int main()
     // std::string filename = N_VARIABLES + "d.txt";
     // std::ifstream       file("/home/ericdang/code/4d.txt");
     std::ifstream file;
-    file.open("/home/willyang1247/4d.txt");
+    file.open("/home/ericdang/code/4d.txt");
     CSVRow              variable;
 
     // data_table[i][j] corresponds to the ith data point and jth variable. If j = N_VARIABLES, j
@@ -251,9 +251,24 @@ int main()
     float actual[N_DATA] __attribute__((aligned(64)));
     float predicted[N_DATA] __attribute__((aligned(64)));
     float resultGPU[N_DATA] __attribute__((aligned(64)));
+    int flatLeafBins[N_DATA] __attribute__((aligned(64)));
+    int bins[int(pow(2, N_VARIABLES))] __attribute__((aligned(64)));
 
     for (int i = 0; i < N_DATA; i++) {
         actual[i] = data_table[i][N_VARIABLES];
+    }
+
+    // flatten leafbins and fill bins with stop values
+    std::cout << "here" << std::endl;
+    int progress = 0;
+    for (int i = 0; i < int(pow(2, N_VARIABLES)); i++) {
+        bins[i] = leafBins[i].size() + progress;
+        std::cout << "bin value: " << bins[i] << "\n";
+
+        for (int j = 0; j < leafBins[i].size(); j++) {
+            flatLeafBins[progress + j] = leafBins[i][j];
+        }
+        progress += leafBins[i].size();
     }
 
     // fill arrays
@@ -277,11 +292,13 @@ int main()
     // size_t size_var = N_VARIABLES * sizeof(float);
     size_t size_bins = N_DATA * sizeof(int);
 
-    int bins[int(pow(2, N_VARIABLES))];
-    for (int i = 0; i < pow(2, N_VARIABLES); i++) {
-        bins[i] = leafBins[i].size();
-        std::cout << "bin value: " << bins[i] << "\n";
-    }
+    // fill bins with stop values
+    // int bins[int(pow(2, N_VARIABLES))];
+    // for (int i = 0; i < pow(2, N_VARIABLES); i++) {
+    //     bins[i] = leafBins[i].size();
+    //     std::cout << "bin value: " << bins[i] << "\n";
+    // }
+
     int *d_leafBins;
     int *d_leafAssignment;
     int *d_bins;
@@ -365,7 +382,7 @@ int main()
     }
 
     // transfer memory associated with initalized vars from host to device
-    err = cudaMemcpy(d_leafBins, leafBins, size_bins, cudaMemcpyHostToDevice);
+    err = cudaMemcpy(d_leafBins, flatLeafBins, size_bins, cudaMemcpyHostToDevice);
     if (err != cudaSuccess)
     {
         fprintf(stderr, "Failed to copy vector from host to device (error code %s)!\n", cudaGetErrorString(err));
