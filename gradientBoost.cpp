@@ -80,7 +80,7 @@ void leaf_assign(CSVRow data_table[], float *tree, std::vector<int> *leaf_bins, 
             }
             if (data_table[nth_sample][nth_variable] <= tree[nth_variable])
             {
-                // std::cout << "here2" << "\n";   
+                // std::cout << "here2" << "\n";
                 upper = upper/2;
             }
             else
@@ -161,6 +161,59 @@ __attribute__ ((noinline))  void end_roi()   {
   std::cout << "elapsed (sec): " << usec/1000000.0 << "\n";
 }
 
+__global__ void d_everything(int *d_leafBins, float *d_residual, float *d_leafValue, int *bins, float *d_predicted, int *d_leafAssignment, float lr, float *d_actual) {
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
+
+    __shared__  float s_residual[MAX_THREADS];
+    __shared__ float s_actual[MAX_THREADS];
+    __shared__ float s_predicted[MAX_THREADS];
+    __shared__ int s_leafBins[MAX_THREADS];
+    // __shared__ float s_bins[MAX_THREADS];
+    __shared__ float s_leafValue[MAX_THREADS];
+    __shared__ float s_leafAssignment[MAX_THREADS];
+
+    s_residual[threadIdx.x] = d_residual[i];
+    s_actual[threadIdx.x] = d_actual[i];
+    s_predicted[threadIdx.x] = d_predicted[i];
+    s_leafBins[threadIdx.x] = d_leafBins[i];
+    // s_bins[threadIdx.x] = bins[i];
+    s_leafValue[threadIdx.x] = d_leafValue[i];
+    s_leafAssignment[threadIdx.x] = d_leafAssignment[i];
+
+    for (int k = 0; k < ITERATIONS; k++) {
+
+
+        // get residuals
+        s_residual[threadIdx.x] = s_actual[threadIdx.x] - s_predicted[threadIdx.x];
+
+        // average bins
+        if (i < N_VARIABLES) {
+                int start;
+            if (i == 0) {
+                start = 0;
+            } else {
+                start = bins[i - 1];
+            }
+            int end = bins[i];
+
+            for (int j = start; j < end; j++ ) {
+                s_leafValue[threadIdx.x] += s_residual[s_leafBins[threadIdx.x]];
+            }
+
+            s_leafValue[threadIdx.x] /= end;
+        }
+
+        // get new predictions
+        s_predicted[threadIdx.x] += lr * s_leafValue[int(s_leafAssignment[threadIdx.x])];
+
+        // reset leaf vals
+        s_leafValue[threadIdx.x] = 0;
+    }
+
+    __syncthreads();
+    d_predicted[i] = s_predicted[threadIdx.x];
+}
+
 __global__ void d_averageBins(int *d_leafBins, float *d_residual, float *d_leafValue, int *bins) {
     int i = threadIdx.x;
     int start;
@@ -207,7 +260,7 @@ void averageBins(std::vector<int> *leafBins, float *residual, float *leafValue) 
     for (int i = 0; i < int(pow(2, N_VARIABLES)); i++) {
         for (int j = 0; j < leafBins[i].size(); j++) {
             leafValue[i] += residual[leafBins[i][j]];
-            // std::cout<< "res: "<< residual[leafBins[i][j]]<< "\n"; 
+            // std::cout<< "res: "<< residual[leafBins[i][j]]<< "\n";
         }
 
         if (leafBins[i].size() != 0) {
@@ -240,8 +293,9 @@ int main()
 {
     // std::string filename = N_VARIABLES + "d.txt";
     // std::ifstream       file("/home/ericdang/code/4d.txt");
+    std::cout << "here" << std::endl;
     std::ifstream file;
-    file.open("/home/willyang1247/4d.txt");
+    file.open("/home/ericdang/code/4d.txt");
     CSVRow              variable;
 
     // data_table[i][j] corresponds to the ith data point and jth variable. If j = N_VARIABLES, j
@@ -257,7 +311,7 @@ int main()
         row++;
     }
     file.close();
-    // std::cout << row << std::endl;
+    std::cout << "here" << std::endl;
     // std::cout << data_table.size() << std::endl;
 
     // initialize data
@@ -490,16 +544,18 @@ int main()
     begin_roi();
     // cuda_leaf_assign<<<numBlocks, MAX_THREADS>>>(d_data_table, d_tree, d_leafBins, d_leafAssignment);
     // cudaDeviceSynchronize();
-    for (int i = 0; i < ITERATIONS; i++) {
-        d_getNewResiduals<<<numBlocks, MAX_THREADS>>>(d_actual, d_predicted, d_residual);
-        cudaDeviceSynchronize();
-        d_averageBins<<<1, numThreads>>>(d_leafBins, d_residual, d_leafValue, d_bins);
-        cudaDeviceSynchronize();
-        d_getNewPredictions<<<numBlocks, MAX_THREADS>>>(d_predicted, d_leafValue, d_leafAssignment, LR);
-        cudaDeviceSynchronize();
-        d_resetLeafValues<<<numBlocks, MAX_THREADS>>>(d_leafValue);
-        cudaDeviceSynchronize();
-    }
+    d_everything<<<numBlocks, MAX_THREADS>>>(d_leafBins, d_residual, d_leafValue, d_bins, d_predicted, d_leafAssignment, LR, d_actual);
+    cudaDeviceSynchronize();
+    // for (int i = 0; i < ITERATIONS; i++) {
+    //     d_getNewResiduals<<<numBlocks, MAX_THREADS>>>(d_actual, d_predicted, d_residual);
+    //     cudaDeviceSynchronize();
+    //     d_averageBins<<<1, numThreads>>>(d_leafBins, d_residual, d_leafValue, d_bins);
+    //     cudaDeviceSynchronize();
+    //     d_getNewPredictions<<<numBlocks, MAX_THREADS>>>(d_predicted, d_leafValue, d_leafAssignment, LR);
+    //     cudaDeviceSynchronize();
+    //     d_resetLeafValues<<<numBlocks, MAX_THREADS>>>(d_leafValue);
+    //     cudaDeviceSynchronize();
+    // }
     end_roi();
 
 
