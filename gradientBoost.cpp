@@ -88,7 +88,7 @@ void leaf_assign(CSVRow data_table[], float *tree, std::vector<int> *leaf_bins, 
 	}
 }
 
-__global__ void cuda_leaf_assign(CSVRow data_table[], float *tree,std::vector<int> *leaf_bins, int *leafAssignment)
+__global__ void cuda_leaf_assign(float* flat_data_table, float *tree,std::vector<int> *leaf_bins, int *leafAssignment)
 {
 	int nth_sample = blockDim.x * blockIdx.x + threadIdx.x;
 	int upper = pow(2, sizeof(tree)/sizeof(float)) - 1;
@@ -98,7 +98,7 @@ __global__ void cuda_leaf_assign(CSVRow data_table[], float *tree,std::vector<in
 	{
 		if (nth_variable == sizeof(tree)/sizeof(float) - 1) // if we've reached the last decision node
 		{
-			if (data_table[nth_sample][nth_variable] <= tree[nth_variable])
+			if (data_table[nth_sample*N_VARIABLES + nth_variable] <= tree[nth_variable])
 			{
 				leafAssignment[nth_sample] = lower;
 				leaf_bins[lower].push_back(nth_sample);
@@ -109,7 +109,7 @@ __global__ void cuda_leaf_assign(CSVRow data_table[], float *tree,std::vector<in
 				leaf_bins[upper].push_back(nth_sample);
 			}
 		}
-		if (data_table[nth_sample][nth_variable] <= tree[nth_variable])
+		if (data_table[nth_sample*N_VARIABLES + nth_variable] <= tree[nth_variable])
 		{
 			upper = upper/2;
 		}
@@ -212,10 +212,13 @@ int main()
     // data_table[i][j] corresponds to the ith data point and jth variable. If j = N_VARIABLES, j
     // is the output of the ith data point
     CSVRow              data_table[N_VARIABLES + 1];
+    float flat_data_table[102400*(N_VARIABLES+1)];
+
     int row = 0;
     while(file >> variable)
     {
         data_table[row] = variable;
+        memcpy(&flat_data_table[variable.size()*row], &variable, variable.size()*sizeof(float));
     	std::cout << "4th Element(" << data_table[row][3] << ")\n";
         row++;
     }
