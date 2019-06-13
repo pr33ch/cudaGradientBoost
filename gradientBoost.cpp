@@ -129,7 +129,8 @@ void preprocessing(float * actual, float * predicted_array, CSVRow data_table[])
 	{
 			runningSum += data_table[i][N_VARIABLES];
 	}
-	float average = runningSum/data_table[N_VARIABLES].size();
+	float average = runningSum/N_DATA;
+    // std::cout << "average: " << average << std::endl;
 
 	// place the average into each spot in predicted_array
 	for (int i = 0; i < N_DATA; i++)
@@ -192,10 +193,16 @@ __global__ void d_getNewResiduals(float *d_actual, float *d_predicted, float *d_
     d_residual[i] = d_actual[i] - d_predicted[i];
 }
 
+__global__ void d_resetLeafValues(float * d_leafValue) {
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
+
+    d_leafValue[i] = 0;
+}
+
 void averageBins(std::vector<int> *leafBins, float *residual, float *leafValue) {
-    for (int i = 0; i < sizeof(leafBins)/sizeof(float); i++) {
+    for (int i = 0; i < int(pow(2, N_VARIABLES)); i++) {
         for (int j = 0; j < leafBins[i].size(); j++) {
-            leafValue[i] += residual[int(leafBins[i][j])];
+            leafValue[i] += residual[leafBins[i][j]];
         }
 
         leafValue[i] /= leafBins[i].size();
@@ -204,14 +211,16 @@ void averageBins(std::vector<int> *leafBins, float *residual, float *leafValue) 
 }
 
 void getNewPredictions(float *predicted, float *leafValue, int *leafAssignment, float lr) {
-    for (int i = 0; i < sizeof(predicted)/sizeof(float); i++) {
+    for (int i = 0; i < N_DATA; i++) {
         predicted[i] += lr * leafValue[leafAssignment[i]];
     }
 }
 
 void getNewResiduals(float *actual, float *predicted, float *residual) {
-    for (int i = 0; i < sizeof(actual)/sizeof(float); i++) {
+    for (int i = 0; i < N_DATA; i++) {
+        // std::cout << "Before: " << residual[i] << std::endl;
         residual[i] = actual[i] - predicted[i];
+        // std::cout << "After: " << residual[i] << std::endl;
     }
 }
 
@@ -252,14 +261,40 @@ int main()
     float predicted[N_DATA] __attribute__((aligned(64)));
     float resultGPU[N_DATA] __attribute__((aligned(64)));
     int flatLeafBins[N_DATA] __attribute__((aligned(64)));
-    int bins[int(pow(2, N_VARIABLES))] __attribute__((aligned(64)));
+    int bins[int(pow(2, N_VARIABLES))];
 
+    // get actual values
     for (int i = 0; i < N_DATA; i++) {
         actual[i] = data_table[i][N_VARIABLES];
+        std::cout << actual[i] << std::endl;
     }
 
+
+    // fill arrays
+    // for (int i = 0; i < 100; i ++){
+    //     std::cout << "predicted: " << predicted[i] << std::endl;
+    // }
+    preprocessing(actual, predicted, data_table);
+    // for (int i = 0; i < 100; i ++){
+    //     std::cout << "predicted: " << predicted[i] << std::endl;
+    // }
+    // exit(0);
+    // for (int i = 0; i < N_DATA; i++) {
+    //     actual[i] = data_table[i][N_VARIABLES];
+    //     std::cout << actual[i] << std::endl;
+    // }
+    initialize_tree(data_table, tree);
+    leaf_assign(data_table, tree, leafBins, leafAssignment);
+    std::fill_n(leafAssignment, N_DATA, 0);
+    std::fill_n(residual, N_DATA, 0);
+    std::fill_n(leafValue, int(pow(2, N_VARIABLES)), 0);
+
+    // Allocate memory
+    cudaError_t err = cudaSuccess;
+    size_t size_output = N_DATA * sizeof(float);
+    size_t size_bins = N_DATA * sizeof(int);
+
     // flatten leafbins and fill bins with stop values
-    std::cout << "here" << std::endl;
     int progress = 0;
     for (int i = 0; i < int(pow(2, N_VARIABLES)); i++) {
         bins[i] = leafBins[i].size() + progress;
@@ -271,39 +306,11 @@ int main()
         progress += leafBins[i].size();
     }
 
-    // fill arrays
-    std::cout << sizeof(resultGPU) << std::endl;
-    std::cout << sizeof(predicted) << std::endl;
-    preprocessing(actual, predicted, data_table);
-    std::cout << sizeof(resultGPU) << std::endl;
-    std::cout << sizeof(predicted) << std::endl;
-    initialize_tree(data_table, tree);
-    leaf_assign(data_table, tree, leafBins, leafAssignment);
-    std::fill_n(leafAssignment, N_DATA, 0);
-    std::fill_n(residual, N_DATA, 0);
-    std::fill_n(leafValue, int(pow(2, N_VARIABLES)), 0);
-    // resultGPU = predicted;
-
-    // Allocate memory
-    cudaError_t err = cudaSuccess;
-    // size_t size_input = table_size * (N_VARIABLES +1) * sizeof(float);
-    size_t size_output = N_DATA * sizeof(float);
-    std::cout << size_output << std::endl;
-    // size_t size_var = N_VARIABLES * sizeof(float);
-    size_t size_bins = N_DATA * sizeof(int);
-
-    // fill bins with stop values
-    // int bins[int(pow(2, N_VARIABLES))];
-    // for (int i = 0; i < pow(2, N_VARIABLES); i++) {
-    //     bins[i] = leafBins[i].size();
-    //     std::cout << "bin value: " << bins[i] << "\n";
-    // }
-
     int *d_leafBins;
     int *d_leafAssignment;
     int *d_bins;
-    float *d_data_table;
-    float *d_tree;
+    // float *d_data_table;
+    // float *d_tree;
     float *d_actual;
     float *d_predicted;
     float *d_residual;
@@ -452,6 +459,7 @@ int main()
         getNewResiduals(actual, predicted, residual);
         averageBins(leafBins, residual, leafValue);
         getNewPredictions(predicted, leafValue, leafAssignment, LR);
+        std::fill_n(leafValue, int(pow(2, N_VARIABLES)), 0);
     }
     end_roi();
 
@@ -459,25 +467,19 @@ int main()
     int numBlocks = N_DATA / MAX_THREADS;
     int numThreads = pow(2, N_VARIABLES);
 
-    // // transfer memory from device to host
-    // err = cudaMemcpy(resultGPU, d_predicted, size_output, cudaMemcpyDeviceToHost);
-    // if (err != cudaSuccess)
-    // {
-    //     fprintf(stderr, "Failed to copy vector d_predicted from device to host (error code %s)!\n", cudaGetErrorString(err));
-    //     exit(EXIT_FAILURE);
-    // }
-
     //compute on GPU
     std::cout << "Begin GPU calculations" << std::endl;
     begin_roi();
     // cuda_leaf_assign<<<numBlocks, MAX_THREADS>>>(d_data_table, d_tree, d_leafBins, d_leafAssignment);
-    cudaDeviceSynchronize();
+    // cudaDeviceSynchronize();
     for (int i = 0; i < ITERATIONS; i++) {
         d_getNewResiduals<<<numBlocks, MAX_THREADS>>>(d_actual, d_predicted, d_residual);
         cudaDeviceSynchronize();
         d_averageBins<<<1, numThreads>>>(d_leafBins, d_residual, d_leafValue, d_bins);
         cudaDeviceSynchronize();
         d_getNewPredictions<<<numBlocks, MAX_THREADS>>>(d_predicted, d_leafValue, d_leafAssignment, LR);
+        cudaDeviceSynchronize();
+        d_resetLeafValues<<<numBlocks, MAX_THREADS>>>(d_leafValue);
         cudaDeviceSynchronize();
     }
     end_roi();
@@ -489,6 +491,11 @@ int main()
     {
         fprintf(stderr, "Failed to copy vector d_predicted from device to host (error code %s)!\n", cudaGetErrorString(err));
         exit(EXIT_FAILURE);
+    }
+
+    // print predicitions
+    for (int i = 0; i < N_DATA; i++) {
+        std::cout << predicted[i] << std::endl;
     }
 
     compare(predicted, resultGPU, N_DATA);
