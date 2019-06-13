@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import pandas as pd
 
-shape = 100000
+shape = 102400
 a = np.linspace(-100, 100, shape)
 b = np.linspace(-10, 10, shape)
 c = np.linspace(20, 111, shape)
