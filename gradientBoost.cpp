@@ -187,14 +187,14 @@ __global__ void d_everything(int *d_leafBins, float *d_residual, float *d_leafVa
         s_residual[threadIdx.x] = s_actual[threadIdx.x] - s_predicted[threadIdx.x];
 
         // average bins
-        if (i < N_VARIABLES) {
+        if (threadIdx.x < N_VARIABLES) {
                 int start;
-            if (i == 0) {
+            if (threadIdx.x == 0) {
                 start = 0;
             } else {
-                start = bins[i - 1];
+                start = bins[threadIdx.x - 1];
             }
-            int end = bins[i];
+            int end = bins[threadIdx.x];
 
             for (int j = start; j < end; j++ ) {
                 s_leafValue[threadIdx.x] += s_residual[s_leafBins[threadIdx.x]];
