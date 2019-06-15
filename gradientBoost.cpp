@@ -79,22 +79,22 @@ void leaf_assign(CSVRow data_table[], float *tree, std::vector<int> *leaf_bins, 
                     leafAssignment[nth_sample] = upper;
                     leaf_bins[upper].push_back(nth_sample);
                 }
-                // std::cout << leafAssignment[nth_sample] << "\n";
             }
             if (data_table[nth_sample][nth_variable] <= tree[nth_variable])
             {
-                // std::cout << "here2" << "\n";
                 upper = upper/2;
             }
             else
             {
-                // std::cout << "here" << "\n";
                 lower = (upper-lower)/2 + 1;
             }
         }
     }
 }
 
+/*****************************************************************************************************/
+/* This commented-out section describes our attempt to parallelize classifying samples to leaf nodes */
+/*****************************************************************************************************/
 // __global__ void cuda_leaf_assign(float* flat_data_table, float *tree,std::vector<int> *leaf_bins, int *leafAssignment)
 // {
 //  int nth_sample = blockDim.x * blockIdx.x + threadIdx.x;
@@ -162,64 +162,64 @@ __attribute__ ((noinline))  void end_roi()   {
   std::cout << "elapsed (sec): " << usec/1000000.0 << "\n";
 }
 
-__global__ void d_everything(int *d_leafBins, float *d_residual, float *d_leafValue, int *bins, float *d_predicted, int *d_leafAssignment, float lr, float *d_actual, int leafs) {
+// failed attempt to combine our smaller kernels to implement shared memory
+__global__ void d_everything(int *d_leafBins, float *d_residual, float *d_leafValue, int *bins, float *d_predicted, int *d_leafAssignment, float lr, float *d_actual) {
+    grid_group grid = this_grid();
     int i = blockDim.x * blockIdx.x + threadIdx.x;
-    int start, end;
 
-    // __shared__  float s_residual[MAX_THREADS];
-    // __shared__ float s_actual[MAX_THREADS];
-    // __shared__ float s_predicted[MAX_THREADS];
-    // __shared__ int s_leafBins[MAX_THREADS];
-    // __shared__ float s_bins[MAX_THREADS];
-    // __shared__ float s_leafValue[leafs];
-    // __shared__ int s_leafAssignment[MAX_THREADS];
+    __shared__  float s_residual[MAX_THREADS];
+    __shared__ float s_actual[MAX_THREADS];
+    __shared__ float s_predicted[MAX_THREADS];
+    __shared__ float s_leafValue[MAX_THREADS];
+    __shared__ int s_leafAssignment[MAX_THREADS];
 
-    // s_residual[threadIdx.x] = d_residual[i];
-    // s_actual[threadIdx.x] = d_actual[i];
-    // s_predicted[threadIdx.x] = d_predicted[i];
-    // s_leafBins[threadIdx.x] = d_leafBins[i];
-    // s_bins[threadIdx.x] = bins[i];
-    // s_leafValue[threadIdx.x] = d_leafValue[i];
-    // s_leafAssignment[threadIdx.x] = d_leafAssignment[i];
-
-    float temp;
+    s_residual[threadIdx.x] = d_residual[i];
+    s_actual[threadIdx.x] = d_actual[i];
+    s_predicted[threadIdx.x] = d_predicted[i];
+    s_leafAssignment[threadIdx.x] = d_leafAssignment[i];
+    __syncthreads();
+    grid.sync();
     for (int k = 0; k < ITERATIONS; k++) {
-
-
         // get residuals
-        d_residual[i] = d_actual[i] - d_predicted[i];
-
+        d_residual[threadIdx.x] = s_actual[threadIdx.x] - s_predicted[threadIdx.x];
+        __syncthreads();
+        grid.sync();
         // average bins
-        for (int m = 0; m < leafs; m++){
+        if (i < 16) {
+                int start;
+            if (i == 0) {
+                start = 0;
+            } else {
+                start = bins[i - 1];
+            }
+            int end = bins[i];
 
-                if (m == 0) {
-                    start = 0;
-                } else {
-                    start = bins[m - 1];
-                }
-                end = bins[m];
+            for (int j = start; j < end; j++ ) {
+                d_leafValue[i] += d_residual[d_leafBins[j]];
+            }
 
-                temp = 0.;
-                for (int j = start; j < end; j++ ) {
-                    temp += d_residual[d_leafBins[j]];
-                }
+            d_leafValue[i] /= end;
+        }
+        __syncthreads();
+        grid.sync();
 
-                if (end - start != 0 ){
-                    temp /= end - start;
-                }
-
-                if (d_leafAssignment[i] == m) {
-                    d_leafValue[i] = temp;
-                }
+        while(lr*d_leafValue[s_leafAssignment[threadIdx.x]] < 1  || lr*d_leafValue[s_leafAssignment[threadIdx.x]] > -1)
+        {
+                // this loop is never taken, but get new predictions is still never updated...
         }
 
         // get new predictions
-        d_predicted[i] += lr * d_leafValue[i];
-
+        s_predicted[threadIdx.x] += lr * d_leafValue[s_leafAssignment[threadIdx.x]];
+        __syncthreads();
+        grid.sync();
+        // reset leaf vals
+        s_leafValue[s_leafAssignment[threadIdx.x]] = 0;
+        __syncthreads();
+        grid.sync();
     }
-
-    // __syncthreads();
-    // d_predicted[i] = d_predicted[threadIdx.x];
+    __syncthreads();
+    grid.sync();
+    memcpy(&d_predicted[i], &s_predicted[threadIdx.x], sizeof(float));
 }
 
 __global__ void d_averageBins(int *d_leafBins, float *d_residual, float *d_leafValue, int *bins) {
@@ -258,19 +258,6 @@ __global__ void d_resetLeafValues(float * d_leafValue) {
 
     d_leafValue[i] = 0;
 }
-
-// void averageBins(std::vector<int> *leafBins, float *residual, float *leafValue) {
-//     for (int i = 0; i < int(pow(2, N_VARIABLES)); i++) {
-//         for (int j = 0; j < leafBins[i].size(); j++) {
-//             leafValue[i] += residual[leafBins[i][j]];
-//         }
-
-//         if (leafBins[i].size() != 0) {
-//             leafValue[i] /= leafBins[i].size();
-//         }
-//     }
-
-// }
 
 void averageBins(int*leafBins, float *residual, float *leafValue, int *bins) {
     int start, end;
@@ -369,20 +356,13 @@ int main()
     int *d_leafBins;
     int *d_leafAssignment;
     int *d_bins;
+    // uncomment for GPU implementation of leaf_assign
     // float *d_data_table;
     // float *d_tree;
     float *d_actual;
     float *d_predicted;
     float *d_residual;
     float *d_leafValue;
-
-    // allocate d_tree memory
-    // err = cudaMalloc((void **)&d_tree, size_var);
-    // if (err != cudaSuccess)
-    // {
-    //     fprintf(stderr, "Failed to allocate device vector d_tree (error code %s)!\n", cudaGetErrorString(err));
-    //     exit(EXIT_FAILURE);
-    // }
 
     // allocate d_leafAssignment memory
     err = cudaMalloc((void **)&d_leafAssignment, size_output);
@@ -408,6 +388,7 @@ int main()
         exit(EXIT_FAILURE);
     }
 
+    // uncomment for GPU implementation of leaf_assign
     // // allocate d_data_table memory
     // err = cudaMalloc((void **)&d_data_table, size_input);
     // if (err != cudaSuccess)
@@ -471,6 +452,7 @@ int main()
         exit(EXIT_FAILURE);
     }
 
+    // uncomment for GPU implementation of leaf_assign
     // err = cudaMemcpy(d_data_table, data_table, size_input, cudaMemcpyHostToDevice);
     // if (err != cudaSuccess)
     // {
@@ -478,6 +460,7 @@ int main()
     //     exit(EXIT_FAILURE);
     // }
 
+    // uncomment for GPU implementation of leaf_assign
     // err = cudaMemcpy(d_tree, tree, size_output, cudaMemcpyHostToDevice);
     // if (err != cudaSuccess)
     // {
@@ -506,6 +489,7 @@ int main()
         exit(EXIT_FAILURE);
     }
 
+    // uncomment for GPU implementation of leaf_assign
     // err = cudaMemcpy(d_leafValue, leafValue, size_output, cudaMemcpyHostToDevice);
     // if (err != cudaSuccess)
     // {
@@ -532,10 +516,46 @@ int main()
     //compute on GPU
     std::cout << "Begin GPU calculations" << std::endl;
     begin_roi();
+    // uncomment for GPU implementation of leaf_assign
     // cuda_leaf_assign<<<numBlocks, MAX_THREADS>>>(d_data_table, d_tree, d_leafBins, d_leafAssignment);
     // cudaDeviceSynchronize();
     // d_everything<<<numBlocks, MAX_THREADS>>>(d_leafBins, d_residual, d_leafValue, d_bins, d_predicted, d_leafAssignment, LR, d_actual, int(pow(2, N_VARIABLES)));
     // cudaDeviceSynchronize();
+
+    /*******************************************************************************************************
+    /* Shared memory implementation commented out. Uses cooperative kernel launch to synchronize blocks
+    /* within kernel call to exploit memory reuse across our smaller kernels
+    // dim3 gridDim(numBlocks,1,1);
+    // dim3 blockDim(MAX_THREADS,1,1);
+    // void **arguments;
+    // int arrayLen = 8;
+    // arguments = (void**)malloc(arrayLen * sizeof(void*));
+    
+    // double* learningRate;
+    // *learningRate = LR;
+    // std::cout << *learningRate << std::endl;
+    // arguments[0] = d_leafBins; 
+    // arguments[1] = d_residual; 
+    // arguments[2] = d_leafValue; 
+    // arguments[3] = d_bins; 
+    // arguments[4] = d_predicted;
+    // arguments[5] = d_leafAssignment; 
+    // arguments[6] = learningRate;
+    // arguments[7] = d_actual;
+    // cudaStream_t stream = 0;
+
+    // size_t sharedMem = 49152;
+    // std::cout<< "hi2" << std::endl;
+    // cudaLaunchCooperativeKernel(
+    //   (const void*)d_everything,
+    //   gridDim,
+    //   blockDim,
+    //   arguments,
+    //   sharedMem,
+    //   stream
+    // ) ;
+    *******************************************************************************************************/
+    
     for (int i = 0; i < ITERATIONS; i++) {
         d_getNewResiduals<<<numBlocks, MAX_THREADS>>>(d_actual, d_predicted, d_residual);
         cudaDeviceSynchronize();
@@ -543,8 +563,6 @@ int main()
         cudaDeviceSynchronize();
         d_getNewPredictions<<<numBlocks, MAX_THREADS>>>(d_predicted, d_leafValue, d_leafAssignment, LR);
         cudaDeviceSynchronize();
-        // d_resetLeafValues<<<numBlocks, MAX_THREADS>>>(d_leafValue);
-        // cudaDeviceSynchronize();
     }
     end_roi();
 
@@ -574,6 +592,7 @@ int main()
         exit(EXIT_FAILURE);
     }
 
+    // uncomment for GPU implementation of leaf_assign
     // err = cudaFree(d_data_table);
     // if (err != cudaSuccess)
     // {
@@ -581,6 +600,7 @@ int main()
     //     exit(EXIT_FAILURE);
     // }
 
+    // uncomment for GPU implementation of leaf_assign
     // err = cudaFree(d_tree);
     // if (err != cudaSuccess)
     // {
